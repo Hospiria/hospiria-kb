@@ -12,7 +12,8 @@ export async function GET(request: Request) {
   const token = request.headers.get('x-clickup-token')
   const { searchParams } = new URL(request.url)
   const workspaceId = searchParams.get('workspaceId')
-  const spaceId = searchParams.get('spaceId') // optional filter
+  const spaceId = searchParams.get('spaceId')
+  const folderId = searchParams.get('folderId')
 
   if (!token || !workspaceId) return NextResponse.json({ error: 'Token and workspaceId required' }, { status: 400 })
 
@@ -23,7 +24,12 @@ export async function GET(request: Request) {
     const url = new URL(`https://api.clickup.com/api/v3/workspaces/${workspaceId}/docs`)
     url.searchParams.set('limit', '100')
     if (cursor) url.searchParams.set('cursor', cursor)
-    if (spaceId) {
+
+    // Drill down: folder takes priority over space
+    if (folderId) {
+      url.searchParams.set('parent_id', folderId)
+      url.searchParams.set('parent_type', 'FOLDER')
+    } else if (spaceId) {
       url.searchParams.set('parent_id', spaceId)
       url.searchParams.set('parent_type', 'SPACE')
     }
