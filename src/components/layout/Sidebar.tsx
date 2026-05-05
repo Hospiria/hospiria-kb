@@ -85,23 +85,25 @@ export function Sidebar({ profile, teamName, teams, categories }: SidebarProps) 
 
           return (
             <div key={team.id}>
-              {/* Team header — click to expand/collapse */}
-              <button
-                onClick={() => toggle(team.id)}
-                className={cn(
-                  'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all',
-                  isTeamActive
-                    ? 'text-white'
-                    : 'text-navy-200 hover:bg-navy-600 hover:text-white'
-                )}
-              >
+              {/* Team header — name links to team SOPs, arrow toggles expand */}
+              <div className={cn(
+                'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all',
+                isTeamActive ? 'text-white' : 'text-navy-200 hover:bg-navy-600 hover:text-white'
+              )}>
                 <TeamIcon className="w-4 h-4 flex-shrink-0" />
-                <span className="flex-1 text-left font-medium">{team.name}</span>
-                {isExpanded
-                  ? <ChevronDown className="w-3 h-3 opacity-60" />
-                  : <ChevronRight className="w-3 h-3 opacity-60" />
-                }
-              </button>
+                <Link
+                  href={`/sops?team=${team.id}`}
+                  className="flex-1 text-left font-medium"
+                >
+                  {team.name}
+                </Link>
+                <button onClick={() => toggle(team.id)} className="p-0.5">
+                  {isExpanded
+                    ? <ChevronDown className="w-3 h-3 opacity-60" />
+                    : <ChevronRight className="w-3 h-3 opacity-60" />
+                  }
+                </button>
+              </div>
 
               {/* Categories under team */}
               {isExpanded && (

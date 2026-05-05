@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   CheckSquare, Square, Loader2, CheckCircle, AlertCircle,
@@ -114,9 +114,33 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
   const router = useRouter()
   const [step, setStep] = useState<Step>('connect')
 
-  // Connect
-  const [token, setToken] = useState('')
+  // Connect — token persisted in localStorage
+  const [token, setToken] = useState(() =>
+    typeof window !== 'undefined' ? (localStorage.getItem('cu_token') ?? '') : ''
+  )
   const [connecting, setConnecting] = useState(false)
+  const [autoConnecting, setAutoConnecting] = useState(false)
+
+  // Auto-connect if token already saved
+  useEffect(() => {
+    const saved = localStorage.getItem('cu_token')
+    if (saved && step === 'connect') {
+      setAutoConnecting(true)
+      fetch('/api/admin/clickup/workspaces', { headers: { 'x-clickup-token': saved } })
+        .then(r => r.json())
+        .then(data => {
+          if (data.workspaces?.length) {
+            setWorkspaces(data.workspaces)
+            const wsId = data.workspaces[0].id
+            setWorkspaceId(wsId)
+            return loadDocs(wsId)
+          }
+        })
+        .catch(() => {/* token expired, just show form */})
+        .finally(() => setAutoConnecting(false))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [error, setError] = useState('')
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [workspaceId, setWorkspaceId] = useState('')
@@ -150,6 +174,7 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
       const res = await fetch('/api/admin/clickup/workspaces', { headers: { 'x-clickup-token': token } })
       const data = await res.json()
       if (!res.ok) { setError(data.error ?? 'Connection failed'); return }
+      localStorage.setItem('cu_token', token) // save for next time
       setWorkspaces(data.workspaces)
       const wsId = data.workspaces.length === 1 ? data.workspaces[0].id : ''
       if (wsId) { setWorkspaceId(wsId); await loadDocs(wsId) }
@@ -289,7 +314,9 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
           <div className="flex items-center gap-2">
             <Plug className="w-5 h-5 text-navy-700" />
             <h2 className="font-semibold text-navy-700">Connect to ClickUp</h2>
+            {autoConnecting && <Loader2 className="w-4 h-4 animate-spin text-teal-500 ml-1" />}
           </div>
+          {autoConnecting && <p className="text-sm text-gray-400">Reconnecting with saved token…</p>}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Personal API Token</label>
             <input
@@ -460,9 +487,14 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
             }
             <div>
               <p className="font-semibold text-navy-700">Import complete</p>
-              <p className="text-sm text-gray-500">
-                {importedCount} imported · {skippedCount} empty (skipped) · {errorCount} errors
-              </p>
+              <div className="flex gap-3 mt-1">
+                <span className="text-sm text-teal-600 font-medium">✓ {importedCount} imported</span>
+                {skippedCount > 0 && <span className="text-sm text-gray-400">⊘ {skippedCount} empty pages skipped</span>}
+                {errorCount > 0 && <span className="text-sm text-red-500">✕ {errorCount} errors</span>}
+              </div>
+              {skippedCount > 0 && (
+                <p className="text-xs text-gray-400 mt-1">Empty pages are section headers with no content — this is normal.</p>
+              )}
             </div>
           </div>
           <div className="divide-y divide-gray-50 max-h-[300px] overflow-y-auto">

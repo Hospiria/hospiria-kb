@@ -99,9 +99,42 @@ export function markdownToTiptap(markdown: string): TiptapContent {
     }
 
     // Horizontal rule
-    if (line.match(/^---+$/)) {
+    if (line.match(/^---+$/) && !(lines[i - 1]?.match(/^\|/) || lines[i + 1]?.match(/^\|/))) {
       nodes.push({ type: 'horizontalRule' })
       i++
+      continue
+    }
+
+    // Markdown table — collect consecutive | lines
+    if (line.match(/^\|.+\|/)) {
+      const tableLines: string[] = []
+      while (i < lines.length && lines[i].match(/^\|.+\|/)) {
+        tableLines.push(lines[i])
+        i++
+      }
+
+      // Second row is separator if it contains only |, -, :, spaces
+      const hasSeparator =
+        tableLines.length > 1 &&
+        tableLines[1].replace(/[|\-:\s]/g, '').length === 0
+
+      function parseRow(rowLine: string): string[] {
+        return rowLine.split('|').slice(1, -1).map(c => c.trim())
+      }
+
+      const rows: TiptapNode[] = []
+      for (let r = 0; r < tableLines.length; r++) {
+        if (hasSeparator && r === 1) continue // skip separator
+        const isHeaderRow = hasSeparator && r === 0
+        const cells = parseRow(tableLines[r]).map(cellText => ({
+          type: isHeaderRow ? 'tableHeader' : 'tableCell',
+          attrs: { colspan: 1, rowspan: 1, colwidth: null },
+          content: [{ type: 'paragraph', content: parseInline(cellText) }],
+        }))
+        if (cells.length > 0) rows.push({ type: 'tableRow', content: cells })
+      }
+
+      if (rows.length > 0) nodes.push({ type: 'table', content: rows })
       continue
     }
 
