@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, CheckSquare, Square, Tag, Users, BookOpen, X, ChevronDown, Check } from 'lucide-react'
+import { Search, CheckSquare, Square, Tag, Users, BookOpen, X, Check, Trash2 } from 'lucide-react'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { SopStatus } from '@/types'
 import { formatDate } from '@/lib/utils'
@@ -43,6 +43,8 @@ export function BulkSopManager({
   const [bulkTeam, setBulkTeam] = useState('')
   const [bulkStatus, setBulkStatus] = useState('')
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
 
   // Filtered SOPs
@@ -72,7 +74,7 @@ export function BulkSopManager({
     setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
 
-  function clearSelection() { setSelectedIds(new Set()) }
+  function clearSelection() { setSelectedIds(new Set()); setConfirmDelete(false); setSaveMsg('') }
 
   async function applyBulk() {
     if (!selectedIds.size) return
@@ -97,6 +99,27 @@ export function BulkSopManager({
       setBulkCategory('')
       setBulkTeam('')
       setBulkStatus('')
+      setSelectedIds(new Set())
+      router.refresh()
+    } else {
+      setSaveMsg(`Error: ${data.error}`)
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirmDelete) { setConfirmDelete(true); return }
+    setDeleting(true)
+    setSaveMsg('')
+    const res = await fetch('/api/admin/sops/bulk', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sopIds: [...selectedIds] }),
+    })
+    const data = await res.json()
+    setDeleting(false)
+    setConfirmDelete(false)
+    if (data.success) {
+      setSaveMsg(`✓ Deleted ${data.deleted} SOP${data.deleted !== 1 ? 's' : ''}`)
       setSelectedIds(new Set())
       router.refresh()
     } else {
@@ -198,6 +221,29 @@ export function BulkSopManager({
           >
             {saving ? 'Saving…' : 'Apply'}
           </button>
+
+          {/* Delete */}
+          <div className="flex items-center gap-2">
+            {confirmDelete ? (
+              <>
+                <span className="text-sm text-red-300">Delete {selectedIds.size} SOP{selectedIds.size !== 1 ? 's' : ''}?</span>
+                <button onClick={handleDelete} disabled={deleting}
+                  className="px-3 py-1.5 bg-red-500 hover:bg-red-400 text-white text-sm font-semibold rounded-lg disabled:opacity-50">
+                  {deleting ? 'Deleting…' : 'Yes, delete'}
+                </button>
+                <button onClick={() => setConfirmDelete(false)}
+                  className="px-3 py-1.5 bg-navy-600 hover:bg-navy-500 text-white text-sm rounded-lg">
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button onClick={handleDelete}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-navy-600 hover:bg-red-500 text-white text-sm font-medium rounded-lg transition-colors">
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete
+              </button>
+            )}
+          </div>
 
           {saveMsg && <span className="text-sm text-teal-300">{saveMsg}</span>}
         </div>
