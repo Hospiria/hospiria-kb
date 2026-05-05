@@ -59,8 +59,12 @@ function PageTree({
                 {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
               </button>
 
-              {/* Checkbox */}
-              <button onClick={() => onToggle(page, false, mySectionId, mySectionName)} className="flex-shrink-0">
+              {/* Checkbox — disabled on section pages, they're just containers */}
+              <button
+                onClick={() => !hasChildren && onToggle(page, false, mySectionId, mySectionName)}
+                className={`flex-shrink-0 ${hasChildren ? 'cursor-default opacity-30' : ''}`}
+                title={hasChildren ? 'Section header — use "Import all" to select pages inside' : ''}
+              >
                 {isSelected
                   ? <CheckSquare className="w-4 h-4 text-teal-600" />
                   : <Square className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
@@ -69,20 +73,21 @@ function PageTree({
 
               {/* Icon + name */}
               {hasChildren
-                ? <Layers className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                ? <Layers className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
                 : <File className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
               }
-              <span className={`text-sm flex-1 truncate ${hasChildren ? 'font-medium text-navy-700' : 'text-gray-700'}`}>
+              <span className={`text-sm flex-1 truncate ${hasChildren ? 'font-medium text-gray-500 italic' : 'text-gray-700'}`}>
                 {page.name}
+                {hasChildren && <span className="ml-1.5 text-xs text-amber-500 not-italic font-normal">section</span>}
               </span>
 
-              {/* Select all children */}
+              {/* Import all sub-pages */}
               {hasChildren && (
                 <button
                   onClick={() => onToggle(page, true, mySectionId, mySectionName)}
-                  className="text-xs text-teal-600 hover:underline opacity-0 group-hover:opacity-100 flex-shrink-0 ml-2 pr-3"
+                  className="text-xs text-teal-600 hover:underline opacity-0 group-hover:opacity-100 flex-shrink-0 ml-2 pr-3 font-medium"
                 >
-                  Select all
+                  Import all →
                 </button>
               )}
             </div>
@@ -377,9 +382,13 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
             <p className="px-5 py-8 text-center text-sm text-gray-400">No pages found in this doc</p>
           ) : (
             <div className="max-h-[450px] overflow-y-auto py-2">
-              <p className="text-xs text-gray-400 px-5 pb-2">
-                Tick a page to select it · hover a section and click <span className="text-teal-600">Select all</span> to pick the whole section
-              </p>
+              <div className="mx-4 mb-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-xs text-amber-700">
+                  <span className="font-semibold">Sections</span> (shown in <span className="italic">italics</span>) are folder headers — they don&apos;t contain SOP content.
+                  Hover a section and click <span className="text-teal-600 font-medium">Import all →</span> to select every page inside it.
+                  Only tick individual pages (non-italic) for the actual SOPs.
+                </p>
+              </div>
               <PageTree pages={pageTree} selectedIds={selectedPageIds} onToggle={handleTogglePage} />
             </div>
           )}
