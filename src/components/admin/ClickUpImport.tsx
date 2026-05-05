@@ -13,7 +13,6 @@ interface ClickUpDoc { id: string; name: string }
 interface Workspace { id: string; name: string }
 interface CUPage { id: string; name: string; pages?: CUPage[] }
 interface SelectedPage { id: string; name: string; sectionId: string; sectionName: string }
-interface SectionAssignment { teamId: string; categoryId: string }
 type ImportResult = { name: string; status: 'imported' | 'skipped' | 'error'; error?: string }
 type Step = 'connect' | 'docs' | 'pages' | 'assign' | 'importing' | 'done'
 
@@ -130,24 +129,14 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
   const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(new Set())
   const [selectedPages, setSelectedPages] = useState<SelectedPage[]>([])
 
-  // Assign — per section
-  const [sectionAssignments, setSectionAssignments] = useState<Record<string, SectionAssignment>>({})
+  // Assign — just a team, no category needed
+  const [assignTeamId, setAssignTeamId] = useState('')
 
   // Results
   const [results, setResults] = useState<ImportResult[]>([])
 
   const filteredDocs = docs.filter(d => !docSearch || d.name.toLowerCase().includes(docSearch.toLowerCase()))
 
-  // Sections derived from selectedPages
-  const sections: { id: string; name: string; count: number }[] = []
-  const seenSections = new Set<string>()
-  for (const p of selectedPages) {
-    if (!seenSections.has(p.sectionId)) {
-      seenSections.add(p.sectionId)
-      sections.push({ id: p.sectionId, name: p.sectionName, count: 0 })
-    }
-    sections.find(s => s.id === p.sectionId)!.count++
-  }
 
   // ── Connect ──────────────────────────────────────────────────────────
   async function handleConnect() {
@@ -178,7 +167,7 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
     setPageTree([])
     setSelectedPageIds(new Set())
     setSelectedPages([])
-    setSectionAssignments({})
+    setAssignTeamId('')
     setPagesError('')
     setLoadingPages(true)
     setStep('pages')
@@ -234,19 +223,6 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
     })
   }
 
-  function updateSection(sectionId: string, field: 'teamId' | 'categoryId', value: string) {
-    setSectionAssignments(prev => ({
-      ...prev,
-      [sectionId]: {
-        teamId: prev[sectionId]?.teamId ?? '',
-        categoryId: prev[sectionId]?.categoryId ?? '',
-        [field]: value,
-        // Reset category when team changes
-        ...(field === 'teamId' ? { categoryId: '' } : {}),
-      },
-    }))
-  }
-
   // ── Import ────────────────────────────────────────────────────────────
   async function handleImport() {
     setStep('importing')
@@ -254,8 +230,8 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
       const pagesWithAssignment = selectedPages.map(p => ({
         id: p.id,
         name: p.name,
-        teamId: sectionAssignments[p.sectionId]?.teamId || null,
-        categoryId: sectionAssignments[p.sectionId]?.categoryId || null,
+        teamId: assignTeamId || null,
+        categoryId: null,
       }))
 
       const res = await fetch('/api/admin/clickup/import', {
@@ -418,64 +394,34 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
         </div>
       )}
 
-      {/* ── Step 4: Assign per section ── */}
+      {/* ── Step 4: Assign ── */}
       {step === 'assign' && (
-        <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100">
-            <h2 className="font-semibold text-navy-700">Assign to Team &amp; Category</h2>
+        <div className="bg-white border border-gray-200 rounded-2xl p-6 space-y-5">
+          <div>
+            <h2 className="font-semibold text-navy-700">Ready to import</h2>
             <p className="text-sm text-gray-400 mt-0.5">
-              Each section can go to a different category. Leave blank to assign later.
+              {selectedPageIds.size} page{selectedPageIds.size !== 1 ? 's' : ''} from <span className="text-navy-700 font-medium">{selectedDoc?.name}</span> will be imported as draft SOPs. You can assign categories later.
             </p>
           </div>
 
-          <div className="divide-y divide-gray-100">
-            {sections.map(section => {
-              const assignment = sectionAssignments[section.id] ?? { teamId: '', categoryId: '' }
-              const filteredCats = categories.filter(c => !assignment.teamId || c.team_id === assignment.teamId)
-              return (
-                <div key={section.id} className="px-5 py-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Layers className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                    <span className="font-medium text-navy-700 text-sm">{section.name}</span>
-                    <span className="text-xs text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">
-                      {section.count} page{section.count !== 1 ? 's' : ''}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">App Team</label>
-                      <select
-                        value={assignment.teamId}
-                        onChange={e => updateSection(section.id, 'teamId', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-                      >
-                        <option value="">Assign later</option>
-                        {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Category</label>
-                      <select
-                        value={assignment.categoryId}
-                        onChange={e => updateSection(section.id, 'categoryId', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-                        disabled={!assignment.teamId}
-                      >
-                        <option value="">Assign later</option>
-                        {filteredCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Team <span className="text-gray-400 font-normal">(optional)</span></label>
+            <select
+              value={assignTeamId}
+              onChange={e => setAssignTeamId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+            >
+              <option value="">No team — assign later</option>
+              {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+            <p className="text-xs text-gray-400 mt-1">Categories can be created and assigned to each SOP after import.</p>
           </div>
 
-          <div className="px-5 py-3 bg-amber-50 border-t border-amber-100">
-            <p className="text-xs text-amber-700">Images will be copied from ClickUp into your app permanently.</p>
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700">
+            Images will be copied from ClickUp into your app permanently.
           </div>
 
-          <div className="px-5 py-4 border-t border-gray-100 flex justify-between items-center">
+          <div className="flex justify-between items-center pt-1">
             <button onClick={() => setStep('pages')} className="text-sm text-gray-400 hover:text-gray-600">← Back</button>
             <button onClick={handleImport}
               className="px-5 py-2.5 bg-navy-700 text-white text-sm font-semibold rounded-lg hover:bg-navy-800 flex items-center gap-2">
