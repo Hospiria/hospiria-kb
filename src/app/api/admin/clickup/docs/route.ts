@@ -1,6 +1,30 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
+async function fetchDocs(workspaceId: string, token: string, parentId?: string, parentType?: string) {
+  const allDocs: unknown[] = []
+  let cursor: string | null = null
+
+  do {
+    const url = new URL(`https://api.clickup.com/api/v3/workspaces/${workspaceId}/docs`)
+    url.searchParams.set('limit', '100')
+    if (cursor) url.searchParams.set('cursor', cursor)
+    if (parentId && parentType) {
+      url.searchParams.set('parent_id', parentId)
+      url.searchParams.set('parent_type', parentType)
+    }
+
+    const res = await fetch(url.toString(), { headers: { Authorization: token } })
+    if (!res.ok) return null
+
+    const data = await res.json()
+    allDocs.push(...(data.docs ?? []))
+    cursor = data.cursor ?? null
+  } while (cursor)
+
+  return allDocs
+}
+
 export async function GET(request: Request) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -17,30 +41,26 @@ export async function GET(request: Request) {
 
   if (!token || !workspaceId) return NextResponse.json({ error: 'Token and workspaceId required' }, { status: 400 })
 
-  const allDocs: unknown[] = []
-  let cursor: string | null = null
+  let docs: unknown[] | null = null
 
-  do {
-    const url = new URL(`https://api.clickup.com/api/v3/workspaces/${workspaceId}/docs`)
-    url.searchParams.set('limit', '100')
-    if (cursor) url.searchParams.set('cursor', cursor)
-
-    // Drill down: folder takes priority over space
-    if (folderId) {
-      url.searchParams.set('parent_id', folderId)
-      url.searchParams.set('parent_type', 'FOLDER')
-    } else if (spaceId) {
-      url.searchParams.set('parent_id', spaceId)
-      url.searchParams.set('parent_type', 'SPACE')
+  if (folderId) {
+    // Try folder filter first
+    docs = await fetchDocs(workspaceId, token, folderId, 'FOLDER')
+    // If empty, fall back to space level
+    if (!docs?.length && spaceId) {
+      docs = await fetchDocs(workspaceId, token, spaceId, 'SPACE')
     }
+  } else if (spaceId) {
+    // Try space filter
+    docs = await fetchDocs(workspaceId, token, spaceId, 'SPACE')
+  }
 
-    const res = await fetch(url.toString(), { headers: { Authorization: token } })
-    if (!res.ok) return NextResponse.json({ error: 'Failed to fetch docs' }, { status: res.status })
+  // Final fallback: get ALL workspace docs (no parent filter)
+  if (!docs?.length) {
+    docs = await fetchDocs(workspaceId, token)
+  }
 
-    const data = await res.json()
-    allDocs.push(...(data.docs ?? []))
-    cursor = data.cursor ?? null
-  } while (cursor)
+  if (docs === null) return NextResponse.json({ error: 'Failed to fetch docs' }, { status: 500 })
 
-  return NextResponse.json({ docs: allDocs })
+  return NextResponse.json({ docs, fallback: !folderId && !spaceId })
 }

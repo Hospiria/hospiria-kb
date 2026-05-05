@@ -41,6 +41,7 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
   const [loadingDocs, setLoadingDocs] = useState(false)
   const [docs, setDocs] = useState<ClickUpDoc[]>([])
   const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set())
+  const [docsFallback, setDocsFallback] = useState(false)
 
   // Configure
   const [teamId, setTeamId] = useState('')
@@ -118,6 +119,7 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
       const data = await res.json()
       if (!res.ok) { setConnectError(data.error ?? 'Failed to load docs'); return }
       setDocs(data.docs ?? [])
+      setDocsFallback(data.fallback ?? false)
       setSelectedDocIds(new Set())
       setStep('select')
     } catch {
@@ -332,8 +334,17 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
         <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
             <div>
-              <h2 className="font-semibold text-navy-700">{docs.length} Doc{docs.length !== 1 ? 's' : ''} in <span className="text-teal-600">{browseLocation}</span></h2>
-              <p className="text-xs text-gray-400 mt-0.5">{selectedDocIds.size} selected</p>
+              <h2 className="font-semibold text-navy-700">
+                {docs.length} Doc{docs.length !== 1 ? 's' : ''}{' '}
+                {docsFallback
+                  ? <span className="text-gray-400 font-normal">in whole workspace</span>
+                  : <span>in <span className="text-teal-600">{browseLocation}</span></span>
+                }
+              </h2>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {docsFallback && '⚠ No docs found in that folder — showing all workspace docs · '}
+                {selectedDocIds.size} selected
+              </p>
             </div>
             <div className="flex items-center gap-3">
               <button onClick={selectAll} className="text-xs text-teal-600 hover:underline font-medium">
@@ -351,8 +362,9 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
           <div className="divide-y divide-gray-50 max-h-[400px] overflow-y-auto">
             {docs.length === 0 ? (
               <div className="px-5 py-10 text-center text-gray-400">
-                <p className="text-sm">No docs found here</p>
-                <button onClick={() => setStep('browse')} className="mt-2 text-xs text-teal-600 hover:underline">Try a different folder</button>
+                <p className="text-sm font-medium text-gray-500">No docs found</p>
+                <p className="text-xs mt-1 text-gray-400">ClickUp Docs are separate from task folders.<br />Try selecting the Space directly instead of a folder.</p>
+                <button onClick={() => setStep('browse')} className="mt-3 text-xs text-teal-600 hover:underline font-medium">← Go back and select the Space</button>
               </div>
             ) : docs.map(doc => (
               <button
