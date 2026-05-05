@@ -14,11 +14,28 @@ export async function GET(request: Request) {
   const docId = searchParams.get('docId')
   if (!token || !workspaceId || !docId) return NextResponse.json({ error: 'Missing params' }, { status: 400 })
 
-  const res = await fetch(
-    `https://api.clickup.com/api/v3/workspaces/${workspaceId}/docs/${docId}/page_listing?max_page_depth=-1`,
-    { headers: { Authorization: token } }
-  )
-  if (!res.ok) return NextResponse.json({ error: 'Failed to fetch pages' }, { status: res.status })
+  // Try with max_page_depth first (some versions use this)
+  const url = `https://api.clickup.com/api/v3/workspaces/${workspaceId}/docs/${docId}/page_listing?max_page_depth=50`
+  const res = await fetch(url, { headers: { Authorization: token } })
+
+  if (!res.ok) {
+    const text = await res.text()
+    console.error('ClickUp page_listing error:', res.status, text)
+    return NextResponse.json(
+      { error: `ClickUp API error ${res.status}: ${text.slice(0, 200)}` },
+      { status: res.status }
+    )
+  }
+
   const data = await res.json()
-  return NextResponse.json({ pages: data.pages ?? [] })
+  console.log('ClickUp page_listing raw keys:', Object.keys(data))
+
+  // ClickUp API v3 may return pages under different keys
+  const pages =
+    data.pages ??       // standard
+    data.data?.pages ?? // wrapped
+    data.data ??        // alternate
+    []
+
+  return NextResponse.json({ pages, _raw_keys: Object.keys(data) })
 }

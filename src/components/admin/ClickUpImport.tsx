@@ -117,6 +117,8 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
   // Pages
   const [pageTree, setPageTree] = useState<CUPage[]>([])
   const [loadingPages, setLoadingPages] = useState(false)
+  const [pagesError, setPagesError] = useState('')
+  const [rawKeys, setRawKeys] = useState<string[]>([])
   const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(new Set())
   const [selectedPages, setSelectedPages] = useState<CUPage[]>([])
 
@@ -159,6 +161,8 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
     setPageTree([])
     setSelectedPageIds(new Set())
     setSelectedPages([])
+    setPagesError('')
+    setRawKeys([])
     setLoadingPages(true)
     setStep('pages')
     try {
@@ -167,8 +171,17 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
         { headers: { 'x-clickup-token': token } }
       )
       const data = await res.json()
-      if (res.ok) setPageTree(data.pages ?? [])
-      else setError(data.error ?? 'Failed to load pages')
+      if (res.ok) {
+        setPageTree(data.pages ?? [])
+        setRawKeys(data._raw_keys ?? [])
+        if ((data.pages ?? []).length === 0) {
+          setPagesError(`No pages returned. API response keys: ${(data._raw_keys ?? []).join(', ') || '(empty)'}`)
+        }
+      } else {
+        setPagesError(data.error ?? 'Failed to load pages')
+      }
+    } catch (e) {
+      setPagesError(`Unexpected error: ${String(e)}`)
     } finally { setLoadingPages(false) }
   }
 
@@ -343,6 +356,12 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
           {loadingPages ? (
             <div className="flex items-center justify-center gap-2 py-10 text-gray-400 text-sm">
               <Loader2 className="w-5 h-5 animate-spin" /> Loading pages…
+            </div>
+          ) : pagesError ? (
+            <div className="px-5 py-6 space-y-3">
+              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{pagesError}</p>
+              <p className="text-xs text-gray-400">Doc ID used: <code className="bg-gray-100 px-1 rounded">{selectedDoc?.id}</code></p>
+              <p className="text-xs text-gray-400">Workspace ID: <code className="bg-gray-100 px-1 rounded">{workspaceId}</code></p>
             </div>
           ) : pageTree.length === 0 ? (
             <p className="px-5 py-8 text-center text-sm text-gray-400">No pages found in this doc</p>
