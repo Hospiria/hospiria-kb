@@ -12,17 +12,21 @@ interface Category { id: string; name: string; team_id: string }
 interface ClickUpDoc { id: string; name: string }
 interface Workspace { id: string; name: string }
 interface CUPage { id: string; name: string; pages?: CUPage[] }
+interface SelectedPage { id: string; name: string; sectionId: string; sectionName: string }
+interface SectionAssignment { teamId: string; categoryId: string }
 type ImportResult = { name: string; status: 'imported' | 'skipped' | 'error'; error?: string }
 type Step = 'connect' | 'docs' | 'pages' | 'assign' | 'importing' | 'done'
 
 // ── Recursive page tree ────────────────────────────────────────────────
 function PageTree({
-  pages, depth = 0, selectedIds, onToggle,
+  pages, depth = 0, selectedIds, onToggle, sectionId = '', sectionName = '',
 }: {
   pages: CUPage[]
   depth?: number
   selectedIds: Set<string>
-  onToggle: (page: CUPage, withChildren: boolean) => void
+  onToggle: (page: CUPage, withChildren: boolean, sectionId: string, sectionName: string) => void
+  sectionId?: string
+  sectionName?: string
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(pages.map(p => p.id))
@@ -38,11 +42,14 @@ function PageTree({
         const hasChildren = (page.pages?.length ?? 0) > 0
         const isExpanded = expanded.has(page.id)
         const isSelected = selectedIds.has(page.id)
+        // At depth 0, each page is its own section
+        const mySectionId = depth === 0 ? page.id : sectionId
+        const mySectionName = depth === 0 ? page.name : sectionName
 
         return (
           <div key={page.id}>
             <div
-              className="flex items-center gap-1.5 py-1.5 px-4 hover:bg-gray-50 rounded-lg group"
+              className="flex items-center gap-1.5 py-1.5 hover:bg-gray-50 rounded-lg group"
               style={{ paddingLeft: `${depth * 20 + 16}px` }}
             >
               {/* Expand/collapse */}
@@ -54,7 +61,7 @@ function PageTree({
               </button>
 
               {/* Checkbox */}
-              <button onClick={() => onToggle(page, false)} className="flex-shrink-0">
+              <button onClick={() => onToggle(page, false, mySectionId, mySectionName)} className="flex-shrink-0">
                 {isSelected
                   ? <CheckSquare className="w-4 h-4 text-teal-600" />
                   : <Square className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
@@ -73,8 +80,8 @@ function PageTree({
               {/* Select all children */}
               {hasChildren && (
                 <button
-                  onClick={() => onToggle(page, true)}
-                  className="text-xs text-teal-600 hover:underline opacity-0 group-hover:opacity-100 flex-shrink-0 ml-2"
+                  onClick={() => onToggle(page, true, mySectionId, mySectionName)}
+                  className="text-xs text-teal-600 hover:underline opacity-0 group-hover:opacity-100 flex-shrink-0 ml-2 pr-3"
                 >
                   Select all
                 </button>
@@ -87,6 +94,8 @@ function PageTree({
                 depth={depth + 1}
                 selectedIds={selectedIds}
                 onToggle={onToggle}
+                sectionId={mySectionId}
+                sectionName={mySectionName}
               />
             )}
           </div>
@@ -118,19 +127,27 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
   const [pageTree, setPageTree] = useState<CUPage[]>([])
   const [loadingPages, setLoadingPages] = useState(false)
   const [pagesError, setPagesError] = useState('')
-  const [rawKeys, setRawKeys] = useState<string[]>([])
   const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(new Set())
-  const [selectedPages, setSelectedPages] = useState<CUPage[]>([])
+  const [selectedPages, setSelectedPages] = useState<SelectedPage[]>([])
 
-  // Assign
-  const [teamId, setTeamId] = useState('')
-  const [categoryId, setCategoryId] = useState('')
+  // Assign — per section
+  const [sectionAssignments, setSectionAssignments] = useState<Record<string, SectionAssignment>>({})
 
   // Results
   const [results, setResults] = useState<ImportResult[]>([])
 
-  const filteredCategories = categories.filter(c => !teamId || c.team_id === teamId)
   const filteredDocs = docs.filter(d => !docSearch || d.name.toLowerCase().includes(docSearch.toLowerCase()))
+
+  // Sections derived from selectedPages
+  const sections: { id: string; name: string; count: number }[] = []
+  const seenSections = new Set<string>()
+  for (const p of selectedPages) {
+    if (!seenSections.has(p.sectionId)) {
+      seenSections.add(p.sectionId)
+      sections.push({ id: p.sectionId, name: p.sectionName, count: 0 })
+    }
+    sections.find(s => s.id === p.sectionId)!.count++
+  }
 
   // ── Connect ──────────────────────────────────────────────────────────
   async function handleConnect() {
@@ -161,8 +178,8 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
     setPageTree([])
     setSelectedPageIds(new Set())
     setSelectedPages([])
+    setSectionAssignments({})
     setPagesError('')
-    setRawKeys([])
     setLoadingPages(true)
     setStep('pages')
     try {
@@ -173,9 +190,8 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
       const data = await res.json()
       if (res.ok) {
         setPageTree(data.pages ?? [])
-        setRawKeys(data._raw_keys ?? [])
         if ((data.pages ?? []).length === 0) {
-          setPagesError(`No pages returned. API response keys: ${(data._raw_keys ?? []).join(', ') || '(empty)'}`)
+          setPagesError(`No pages returned from ClickUp. Doc ID: ${doc.id}`)
         }
       } else {
         setPagesError(data.error ?? 'Failed to load pages')
@@ -195,9 +211,9 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
     return result
   }
 
-  function handleTogglePage(page: CUPage, withChildren: boolean) {
-    const ids = withChildren ? flattenPages([page]).map(p => p.id) : [page.id]
-    const pages = withChildren ? flattenPages([page]) : [page]
+  function handleTogglePage(page: CUPage, withChildren: boolean, sectionId: string, sectionName: string) {
+    const allPages = withChildren ? flattenPages([page]) : [page]
+    const ids = allPages.map(p => p.id)
     const allSelected = ids.every(id => selectedPageIds.has(id))
 
     setSelectedPageIds(prev => {
@@ -209,23 +225,43 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
     setSelectedPages(prev => {
       if (allSelected) return prev.filter(p => !ids.includes(p.id))
       const existing = new Set(prev.map(p => p.id))
-      return [...prev, ...pages.filter(p => !existing.has(p.id))]
+      return [
+        ...prev,
+        ...allPages
+          .filter(p => !existing.has(p.id))
+          .map(p => ({ id: p.id, name: p.name, sectionId, sectionName })),
+      ]
     })
+  }
+
+  function updateSection(sectionId: string, field: 'teamId' | 'categoryId', value: string) {
+    setSectionAssignments(prev => ({
+      ...prev,
+      [sectionId]: {
+        teamId: prev[sectionId]?.teamId ?? '',
+        categoryId: prev[sectionId]?.categoryId ?? '',
+        [field]: value,
+        // Reset category when team changes
+        ...(field === 'teamId' ? { categoryId: '' } : {}),
+      },
+    }))
   }
 
   // ── Import ────────────────────────────────────────────────────────────
   async function handleImport() {
     setStep('importing')
     try {
+      const pagesWithAssignment = selectedPages.map(p => ({
+        id: p.id,
+        name: p.name,
+        teamId: sectionAssignments[p.sectionId]?.teamId || null,
+        categoryId: sectionAssignments[p.sectionId]?.categoryId || null,
+      }))
+
       const res = await fetch('/api/admin/clickup/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token, workspaceId, docId: selectedDoc!.id,
-          pages: selectedPages,
-          teamId: teamId || null,
-          categoryId: categoryId || null,
-        }),
+        body: JSON.stringify({ token, workspaceId, docId: selectedDoc!.id, pages: pagesWithAssignment }),
       })
       const data = await res.json()
       setResults(data.results ?? [])
@@ -344,7 +380,7 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
             <div>
               <h2 className="font-semibold text-navy-700">{selectedDoc?.name}</h2>
               <p className="text-xs text-gray-400 mt-0.5">
-                {selectedPageIds.size} page{selectedPageIds.size !== 1 ? 's' : ''} selected to import
+                {selectedPageIds.size} page{selectedPageIds.size !== 1 ? 's' : ''} selected
               </p>
             </div>
             <button onClick={() => setStep('docs')}
@@ -358,16 +394,16 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
               <Loader2 className="w-5 h-5 animate-spin" /> Loading pages…
             </div>
           ) : pagesError ? (
-            <div className="px-5 py-6 space-y-3">
+            <div className="px-5 py-6">
               <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{pagesError}</p>
-              <p className="text-xs text-gray-400">Doc ID used: <code className="bg-gray-100 px-1 rounded">{selectedDoc?.id}</code></p>
-              <p className="text-xs text-gray-400">Workspace ID: <code className="bg-gray-100 px-1 rounded">{workspaceId}</code></p>
             </div>
           ) : pageTree.length === 0 ? (
             <p className="px-5 py-8 text-center text-sm text-gray-400">No pages found in this doc</p>
           ) : (
             <div className="max-h-[450px] overflow-y-auto py-2">
-              <p className="text-xs text-gray-400 px-5 pb-2">Click checkbox to select a page · hover a section and click <span className="text-teal-600">Select all</span> to pick all its sub-pages</p>
+              <p className="text-xs text-gray-400 px-5 pb-2">
+                Tick a page to select it · hover a section and click <span className="text-teal-600">Select all</span> to pick the whole section
+              </p>
               <PageTree pages={pageTree} selectedIds={selectedPageIds} onToggle={handleTogglePage} />
             </div>
           )}
@@ -382,37 +418,64 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
         </div>
       )}
 
-      {/* ── Step 4: Assign ── */}
+      {/* ── Step 4: Assign per section ── */}
       {step === 'assign' && (
-        <div className="bg-white border border-gray-200 rounded-2xl p-6 space-y-5">
-          <div>
-            <h2 className="font-semibold text-navy-700">Assign to Team & Category</h2>
+        <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-100">
+            <h2 className="font-semibold text-navy-700">Assign to Team &amp; Category</h2>
             <p className="text-sm text-gray-400 mt-0.5">
-              {selectedPageIds.size} page{selectedPageIds.size !== 1 ? 's' : ''} from <span className="text-teal-600">{selectedDoc?.name}</span> will become draft SOPs
+              Each section can go to a different category. Leave blank to assign later.
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">App Team</label>
-              <select value={teamId} onChange={e => { setTeamId(e.target.value); setCategoryId('') }}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                <option value="">Assign later</option>
-                {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-              <select value={categoryId} onChange={e => setCategoryId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                <option value="">Assign later</option>
-                {filteredCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
+
+          <div className="divide-y divide-gray-100">
+            {sections.map(section => {
+              const assignment = sectionAssignments[section.id] ?? { teamId: '', categoryId: '' }
+              const filteredCats = categories.filter(c => !assignment.teamId || c.team_id === assignment.teamId)
+              return (
+                <div key={section.id} className="px-5 py-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Layers className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                    <span className="font-medium text-navy-700 text-sm">{section.name}</span>
+                    <span className="text-xs text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">
+                      {section.count} page{section.count !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">App Team</label>
+                      <select
+                        value={assignment.teamId}
+                        onChange={e => updateSection(section.id, 'teamId', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      >
+                        <option value="">Assign later</option>
+                        {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Category</label>
+                      <select
+                        value={assignment.categoryId}
+                        onChange={e => updateSection(section.id, 'categoryId', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                        disabled={!assignment.teamId}
+                      >
+                        <option value="">Assign later</option>
+                        {filteredCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700">
-            Images will be copied from ClickUp into your app permanently.
+
+          <div className="px-5 py-3 bg-amber-50 border-t border-amber-100">
+            <p className="text-xs text-amber-700">Images will be copied from ClickUp into your app permanently.</p>
           </div>
-          <div className="flex justify-between">
+
+          <div className="px-5 py-4 border-t border-gray-100 flex justify-between items-center">
             <button onClick={() => setStep('pages')} className="text-sm text-gray-400 hover:text-gray-600">← Back</button>
             <button onClick={handleImport}
               className="px-5 py-2.5 bg-navy-700 text-white text-sm font-semibold rounded-lg hover:bg-navy-800 flex items-center gap-2">

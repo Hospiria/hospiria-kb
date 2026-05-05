@@ -44,7 +44,8 @@ export async function POST(request: Request) {
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
   if (!profile || profile.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const { token, workspaceId, docId, pages, teamId, categoryId } = await request.json()
+  // pages now includes per-page teamId/categoryId
+  const { token, workspaceId, docId, pages } = await request.json()
   if (!token || !workspaceId || !docId || !pages?.length) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
@@ -54,6 +55,9 @@ export async function POST(request: Request) {
   const results: { name: string; status: 'imported' | 'skipped' | 'error'; error?: string }[] = []
 
   for (const page of pages) {
+    const pageTeamId: string | null = page.teamId ?? null
+    const pageCategoryId: string | null = page.categoryId ?? null
+
     try {
       // Fetch page content
       const res = await fetch(
@@ -72,11 +76,11 @@ export async function POST(request: Request) {
 
       const { data: sop, error } = await supabase
         .from('sops')
-        .insert({ title: page.name, content, status: 'draft', author_id: user.id, category_id: categoryId || null })
+        .insert({ title: page.name, content, status: 'draft', author_id: user.id, category_id: pageCategoryId })
         .select('id').single()
 
       if (!error && sop) {
-        if (teamId) await supabase.from('sop_teams').insert({ sop_id: sop.id, team_id: teamId })
+        if (pageTeamId) await supabase.from('sop_teams').insert({ sop_id: sop.id, team_id: pageTeamId })
         results.push({ name: page.name, status: 'imported' })
       } else {
         results.push({ name: page.name, status: 'error', error: 'Database error' })
