@@ -105,6 +105,14 @@ export function markdownToTiptap(markdown: string): TiptapContent {
       continue
     }
 
+    // Standalone image: ![alt](url)
+    const imgMatch = line.match(/^!\[([^\]]*)\]\(([^)]+)\)\s*$/)
+    if (imgMatch) {
+      nodes.push({ type: 'image', attrs: { src: imgMatch[2], alt: imgMatch[1] || null, title: null } })
+      i++
+      continue
+    }
+
     // Regular paragraph
     nodes.push({ type: 'paragraph', content: parseInline(line) })
     i++

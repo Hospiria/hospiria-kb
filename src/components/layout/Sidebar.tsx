@@ -7,7 +7,7 @@ import { Profile } from '@/types'
 import { RoleBadge } from '@/components/ui/StatusBadge'
 import {
   LayoutDashboard, Users, Building2, Upload,
-  ChevronRight, ChevronDown, BookOpen, Users as TeamIcon,
+  ChevronRight, ChevronDown, BookOpen, Users as TeamIcon, PlugZap,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 
@@ -142,6 +142,7 @@ export function Sidebar({ profile, teamName, teams, categories }: SidebarProps) 
               { label: 'Users', href: '/admin/users', icon: Users },
               { label: 'Teams & Categories', href: '/admin/teams', icon: Building2 },
               { label: 'Import SOPs', href: '/admin/import', icon: Upload },
+              { label: 'Import from ClickUp', href: '/admin/clickup', icon: PlugZap },
             ].map(item => (
               <Link
                 key={item.href}
