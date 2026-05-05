@@ -28,14 +28,11 @@ export async function GET(request: Request) {
   }
 
   const data = await res.json()
-  console.log('ClickUp page_listing raw keys:', Object.keys(data))
 
-  // ClickUp API v3 may return pages under different keys
-  const pages =
-    data.pages ??       // standard
-    data.data?.pages ?? // wrapped
-    data.data ??        // alternate
-    []
+  // ClickUp returns a plain array OR an object with { pages: [...] }
+  const pages = Array.isArray(data)
+    ? data
+    : (data.pages ?? data.data?.pages ?? data.data ?? [])
 
-  return NextResponse.json({ pages, _raw_keys: Object.keys(data) })
+  return NextResponse.json({ pages, _raw_keys: Array.isArray(data) ? ['(array)'] : Object.keys(data) })
 }
