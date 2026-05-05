@@ -2,19 +2,17 @@ export const dynamic = 'force-dynamic'
 
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { getEffectiveSession } from '@/lib/impersonation'
 import Link from 'next/link'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { formatDate } from '@/lib/utils'
 import { FileText, Clock, CheckCircle, Users, TrendingUp } from 'lucide-react'
 
 export default async function DashboardPage() {
-  const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const session = await getEffectiveSession()
+  if (!session || !session.profile) redirect('/login')
 
-  const { data: profile } = await supabase.from('profiles').select('*, teams(name)').eq('id', user.id).single()
-  if (!profile) redirect('/login')
-
+  const { profile, effectiveUserId } = session
   const role = profile.role
 
   return (
@@ -28,9 +26,9 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      {role === 'super_admin' && <SuperAdminDashboard userId={user.id} />}
-      {role === 'approver' && <ApproverDashboard userId={user.id} />}
-      {role === 'author' && <AuthorDashboard userId={user.id} />}
+      {role === 'super_admin' && <SuperAdminDashboard userId={effectiveUserId} />}
+      {role === 'approver' && <ApproverDashboard userId={effectiveUserId} />}
+      {role === 'author' && <AuthorDashboard userId={effectiveUserId} />}
       {role === 'agent' && <AgentDashboard profile={profile} />}
     </div>
   )

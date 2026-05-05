@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Profile, Team } from '@/types'
 import { RoleBadge } from '@/components/ui/StatusBadge'
 import { formatDate } from '@/lib/utils'
-import { UserPlus, Edit2, Check, X, Shield } from 'lucide-react'
+import { UserPlus, Edit2, Check, X, Shield, Eye } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 type UserWithTeams = Profile & {
@@ -23,8 +23,20 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
   const [editRole, setEditRole] = useState('')
   const [editTeam, setEditTeam] = useState('')
   const [saving, setSaving] = useState(false)
+  const [impersonating, setImpersonating] = useState<string | null>(null)
   const router = useRouter()
   const supabase = createClient()
+
+  async function viewAs(userId: string) {
+    setImpersonating(userId)
+    await fetch('/api/admin/impersonate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    })
+    router.push('/dashboard')
+    router.refresh()
+  }
 
   async function handleInvite(e: React.FormEvent) {
     e.preventDefault()
@@ -171,11 +183,19 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
                     </button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
                     <div className="text-right">
                       <RoleBadge role={u.role} />
                       {u.teams && <p className="text-xs text-gray-400 mt-0.5">{u.teams.name}</p>}
                     </div>
+                    <button
+                      onClick={() => viewAs(u.id)}
+                      disabled={impersonating === u.id}
+                      title="View app as this user"
+                      className="p-1.5 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
                     <button onClick={() => startEdit(u)} className="p-1.5 text-gray-400 hover:text-navy-700 hover:bg-gray-100 rounded-lg transition-colors">
                       <Edit2 className="w-4 h-4" />
                     </button>
