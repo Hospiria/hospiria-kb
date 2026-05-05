@@ -107,12 +107,11 @@ export async function POST(request: Request) {
       const rawContent = data.content ?? ''
       if (!rawContent.trim()) { results.push({ name: page.name, status: 'skipped' }); continue }
 
-      // Skip if a SOP with this exact title already exists (prevents duplicates on re-import)
-      const { data: existing } = await adminClient
-        .from('sops')
-        .select('id')
-        .eq('title', page.name)
-        .maybeSingle()
+      // Skip only if a SOP with the same title AND same category already exists
+      const dupQuery = adminClient.from('sops').select('id').eq('title', page.name)
+      const { data: existing } = pageCategoryId
+        ? await dupQuery.eq('category_id', pageCategoryId).maybeSingle()
+        : await dupQuery.is('category_id', null).maybeSingle()
       if (existing) { results.push({ name: page.name, status: 'skipped' }); continue }
 
       const processedMarkdown = await processImages(rawContent, token, adminClient)
