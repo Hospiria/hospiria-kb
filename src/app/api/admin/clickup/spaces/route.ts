@@ -12,29 +12,15 @@ export async function GET(request: Request) {
   const token = request.headers.get('x-clickup-token')
   const { searchParams } = new URL(request.url)
   const workspaceId = searchParams.get('workspaceId')
-  const spaceId = searchParams.get('spaceId') // optional filter
 
   if (!token || !workspaceId) return NextResponse.json({ error: 'Token and workspaceId required' }, { status: 400 })
 
-  const allDocs: unknown[] = []
-  let cursor: string | null = null
+  const res = await fetch(`https://api.clickup.com/api/v2/team/${workspaceId}/space?archived=false`, {
+    headers: { Authorization: token },
+  })
 
-  do {
-    const url = new URL(`https://api.clickup.com/api/v3/workspaces/${workspaceId}/docs`)
-    url.searchParams.set('limit', '100')
-    if (cursor) url.searchParams.set('cursor', cursor)
-    if (spaceId) {
-      url.searchParams.set('parent_id', spaceId)
-      url.searchParams.set('parent_type', 'SPACE')
-    }
+  if (!res.ok) return NextResponse.json({ error: 'Failed to fetch spaces' }, { status: res.status })
 
-    const res = await fetch(url.toString(), { headers: { Authorization: token } })
-    if (!res.ok) return NextResponse.json({ error: 'Failed to fetch docs' }, { status: res.status })
-
-    const data = await res.json()
-    allDocs.push(...(data.docs ?? []))
-    cursor = data.cursor ?? null
-  } while (cursor)
-
-  return NextResponse.json({ docs: allDocs })
+  const data = await res.json()
+  return NextResponse.json({ spaces: data.spaces ?? [] })
 }
