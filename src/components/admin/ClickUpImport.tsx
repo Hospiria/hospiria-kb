@@ -41,7 +41,9 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
   const [loadingDocs, setLoadingDocs] = useState(false)
   const [docs, setDocs] = useState<ClickUpDoc[]>([])
   const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set())
-  const [docsFallback, setDocsFallback] = useState(false)
+  const [docsSource, setDocsSource] = useState<string>('')
+  const [showSearch, setShowSearch] = useState(false)
+  const [docSearch, setDocSearch] = useState('')
 
   // Configure
   const [teamId, setTeamId] = useState('')
@@ -119,7 +121,9 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
       const data = await res.json()
       if (!res.ok) { setConnectError(data.error ?? 'Failed to load docs'); return }
       setDocs(data.docs ?? [])
-      setDocsFallback(data.fallback ?? false)
+      setDocsSource(data.source ?? '')
+      setShowSearch(data.showSearch ?? false)
+      setDocSearch('')
       setSelectedDocIds(new Set())
       setStep('select')
     } catch {
@@ -332,31 +336,42 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
       {/* ── STEP 3: Select Docs ── */}
       {step === 'select' && (
         <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-            <div>
-              <h2 className="font-semibold text-navy-700">
-                {docs.length} Doc{docs.length !== 1 ? 's' : ''}{' '}
-                {docsFallback
-                  ? <span className="text-gray-400 font-normal">in whole workspace</span>
-                  : <span>in <span className="text-teal-600">{browseLocation}</span></span>
-                }
-              </h2>
-              <p className="text-xs text-gray-400 mt-0.5">
-                {docsFallback && '⚠ No docs found in that folder — showing all workspace docs · '}
-                {selectedDocIds.size} selected
-              </p>
+          <div className="px-5 py-4 border-b border-gray-100">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <h2 className="font-semibold text-navy-700">
+                  {docsSource === 'all'
+                    ? `${docs.length} Docs across whole workspace`
+                    : `${docs.length} Doc${docs.length !== 1 ? 's' : ''} in `}
+                  {docsSource !== 'all' && <span className="text-teal-600">{browseLocation}</span>}
+                </h2>
+                <p className="text-xs text-gray-400 mt-0.5">{selectedDocIds.size} selected</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <button onClick={selectAll} className="text-xs text-teal-600 hover:underline font-medium">
+                  {selectedDocIds.size === docs.length ? 'Deselect all' : 'Select all'}
+                </button>
+                <button onClick={() => setStep('browse')} className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg px-2 py-1">
+                  ← Browse
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <button onClick={selectAll} className="text-xs text-teal-600 hover:underline font-medium">
-                {selectedDocIds.size === docs.length ? 'Deselect all' : 'Select all'}
-              </button>
-              <button
-                onClick={() => setStep('browse')}
-                className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg px-2 py-1"
-              >
-                ← Browse
-              </button>
-            </div>
+            {/* Warning + search when showing all workspace docs */}
+            {showSearch && (
+              <div className="mt-2 space-y-2">
+                <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  ⚠ Could not filter by space — showing all workspace docs. Use the search below to find your docs.
+                </p>
+                <input
+                  type="text"
+                  value={docSearch}
+                  onChange={e => setDocSearch(e.target.value)}
+                  placeholder="Search docs by name… e.g. 10.4 PHT"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  autoFocus
+                />
+              </div>
+            )}
           </div>
 
           <div className="divide-y divide-gray-50 max-h-[400px] overflow-y-auto">
@@ -366,7 +381,7 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
                 <p className="text-xs mt-1 text-gray-400">ClickUp Docs are separate from task folders.<br />Try selecting the Space directly instead of a folder.</p>
                 <button onClick={() => setStep('browse')} className="mt-3 text-xs text-teal-600 hover:underline font-medium">← Go back and select the Space</button>
               </div>
-            ) : docs.map(doc => (
+            ) : docs.filter(d => !docSearch || d.name.toLowerCase().includes(docSearch.toLowerCase())).map(doc => (
               <button
                 key={doc.id}
                 onClick={() => toggleDoc(doc.id)}
@@ -380,6 +395,7 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
                 <span className="text-sm text-navy-700 flex-1 truncate">{doc.name}</span>
               </button>
             ))}
+
           </div>
 
           <div className="px-5 py-4 border-t border-gray-100 flex justify-between items-center">
