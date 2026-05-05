@@ -455,12 +455,17 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">App Team</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              App Team <span className="text-red-500">*</span>
+            </label>
             <select value={assignTeamId} onChange={e => setAssignTeamId(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-              <option value="">No team</option>
+              className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 ${!assignTeamId ? 'border-red-300 bg-red-50' : 'border-gray-200'}`}>
+              <option value="">— Select a team —</option>
               {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
+            {!assignTeamId && (
+              <p className="text-xs text-red-500 mt-1">A team is required so categories can be auto-created from your ClickUp sections.</p>
+            )}
           </div>
 
           {/* Preview of sections → categories that will be created */}
@@ -485,8 +490,8 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
 
           <div className="flex justify-between items-center pt-1">
             <button onClick={() => setStep('pages')} className="text-sm text-gray-400 hover:text-gray-600">← Back</button>
-            <button onClick={handleImport}
-              className="px-5 py-2.5 bg-navy-700 text-white text-sm font-semibold rounded-lg hover:bg-navy-800 flex items-center gap-2">
+            <button onClick={handleImport} disabled={!assignTeamId}
+              className="px-5 py-2.5 bg-navy-700 text-white text-sm font-semibold rounded-lg hover:bg-navy-800 disabled:opacity-40 flex items-center gap-2">
               <Download className="w-4 h-4" />
               Import {selectedPageIds.size} Pages
             </button>

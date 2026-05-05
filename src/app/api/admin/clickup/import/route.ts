@@ -59,8 +59,8 @@ export async function POST(request: Request) {
     const cacheKey = `${teamId}::${parentName}`
     if (categoryCache[cacheKey]) return categoryCache[cacheKey]
 
-    // Look for existing category with this name under the team
-    const { data: existing } = await supabase
+    // Use adminClient to bypass RLS for category lookup/creation
+    const { data: existing } = await adminClient
       .from('categories')
       .select('id')
       .eq('name', parentName)
@@ -72,12 +72,14 @@ export async function POST(request: Request) {
       return existing.id
     }
 
-    // Create it
-    const { data: created } = await supabase
+    // Create new category
+    const { data: created, error: catErr } = await adminClient
       .from('categories')
       .insert({ name: parentName, team_id: teamId, display_order: 999 })
       .select('id')
       .single()
+
+    if (catErr) console.error('Category create error:', catErr.message, { parentName, teamId })
 
     if (created) {
       categoryCache[cacheKey] = created.id
@@ -105,19 +107,28 @@ export async function POST(request: Request) {
       const rawContent = data.content ?? ''
       if (!rawContent.trim()) { results.push({ name: page.name, status: 'skipped' }); continue }
 
+      // Skip if a SOP with this exact title already exists (prevents duplicates on re-import)
+      const { data: existing } = await adminClient
+        .from('sops')
+        .select('id')
+        .eq('title', page.name)
+        .maybeSingle()
+      if (existing) { results.push({ name: page.name, status: 'skipped' }); continue }
+
       const processedMarkdown = await processImages(rawContent, token, adminClient)
       const content = markdownToTiptap(processedMarkdown)
 
-      const { data: sop, error } = await supabase
+      const { data: sop, error } = await adminClient
         .from('sops')
         .insert({ title: page.name, content, status: 'draft', author_id: user.id, category_id: pageCategoryId })
         .select('id').single()
 
       if (!error && sop) {
-        if (pageTeamId) await supabase.from('sop_teams').insert({ sop_id: sop.id, team_id: pageTeamId })
+        if (pageTeamId) await adminClient.from('sop_teams').insert({ sop_id: sop.id, team_id: pageTeamId })
         results.push({ name: page.name, status: 'imported' })
       } else {
-        results.push({ name: page.name, status: 'error', error: 'Database error' })
+        console.error('SOP insert error:', error?.message, page.name)
+        results.push({ name: page.name, status: 'error', error: error?.message ?? 'Database error' })
       }
     } catch {
       results.push({ name: page.name, status: 'error', error: 'Unexpected error' })
