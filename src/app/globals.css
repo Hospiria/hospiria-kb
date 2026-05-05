@@ -1,0 +1,86 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  html { font-family: 'Inter', system-ui, sans-serif; }
+}
+
+@layer components {
+  /* ── Shared ProseMirror content styles (editor + viewer) ── */
+  .kb-content h1 {
+    @apply text-2xl font-bold text-navy-700 mb-3 mt-6 first:mt-0;
+  }
+  .kb-content h2 {
+    @apply text-xl font-semibold text-navy-700 mb-2 mt-5 first:mt-0;
+  }
+  .kb-content h3 {
+    @apply text-base font-semibold text-navy-700 mb-2 mt-4 first:mt-0;
+  }
+  .kb-content p {
+    @apply mb-4 text-gray-700 leading-relaxed;
+  }
+  .kb-content p:last-child { @apply mb-0; }
+  .kb-content ul {
+    @apply list-disc pl-6 mb-4 space-y-1;
+  }
+  .kb-content ol {
+    @apply list-decimal pl-6 mb-4 space-y-1;
+  }
+  .kb-content li { @apply text-gray-700 leading-relaxed; }
+  .kb-content li p { @apply mb-0; }
+  .kb-content strong { @apply font-semibold text-gray-900; }
+  .kb-content em { @apply italic; }
+  .kb-content u { @apply underline; }
+  .kb-content a { @apply text-teal-600 underline cursor-pointer; }
+  .kb-content table {
+    @apply w-full border-collapse mb-4 text-sm;
+  }
+  .kb-content td,
+  .kb-content th {
+    @apply border border-gray-300 px-3 py-2 text-left;
+  }
+  .kb-content th {
+    @apply bg-gray-50 font-semibold text-gray-700;
+  }
+  .kb-content blockquote {
+    @apply border-l-4 border-teal-500 bg-teal-50 pl-4 pr-4 py-3 rounded-r-lg my-4 text-gray-700 italic;
+  }
+  .kb-content blockquote p { @apply mb-0; }
+  .kb-content code {
+    @apply bg-gray-100 text-navy-700 px-1.5 py-0.5 rounded text-sm font-mono;
+  }
+  .kb-content pre {
+    @apply bg-gray-900 text-gray-100 p-4 rounded-xl mb-4 overflow-x-auto;
+  }
+  .kb-content hr {
+    @apply my-6 border-gray-200;
+  }
+  .kb-content img {
+    @apply max-w-full rounded-xl my-4;
+  }
+
+  /* ── Editor wrapper ── */
+  .tiptap-editor .ProseMirror {
+    @apply outline-none min-h-[400px] p-6;
+  }
+  .tiptap-editor .ProseMirror { @apply kb-content; }
+
+  /* Placeholder */
+  .tiptap-editor .ProseMirror p.is-editor-empty:first-child::before {
+    @apply text-gray-300;
+    content: attr(data-placeholder);
+    float: left;
+    pointer-events: none;
+    height: 0;
+  }
+
+  /* ── Viewer wrapper ── */
+  .kb-viewer .ProseMirror {
+    @apply outline-none p-6;
+  }
+  .kb-viewer .ProseMirror { @apply kb-content; }
+}
