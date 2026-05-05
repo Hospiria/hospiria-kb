@@ -12,20 +12,43 @@ interface Category { id: string; name: string; team_id: string }
 interface ClickUpDoc { id: string; name: string }
 interface Workspace { id: string; name: string }
 interface CUPage { id: string; name: string; pages?: CUPage[] }
-interface SelectedPage { id: string; name: string; sectionId: string; sectionName: string }
+
+// Each selected page tracks its immediate parent section name (used to auto-create categories)
+interface SelectedPage {
+  id: string
+  name: string
+  sectionId: string    // top-level section id (for grouping)
+  sectionName: string  // top-level section name
+  parentName: string   // immediate parent name → becomes the category
+}
+
 type ImportResult = { name: string; status: 'imported' | 'skipped' | 'error'; error?: string }
 type Step = 'connect' | 'docs' | 'pages' | 'assign' | 'importing' | 'done'
 
+// ── Flatten only LEAF pages (no children), preserving immediate parent name ──
+function flattenLeaves(pages: CUPage[], parentName: string): { id: string; name: string; parentName: string }[] {
+  const result: { id: string; name: string; parentName: string }[] = []
+  for (const p of pages) {
+    if (!p.pages?.length) {
+      result.push({ id: p.id, name: p.name, parentName })
+    } else {
+      result.push(...flattenLeaves(p.pages, p.name))
+    }
+  }
+  return result
+}
+
 // ── Recursive page tree ────────────────────────────────────────────────
 function PageTree({
-  pages, depth = 0, selectedIds, onToggle, sectionId = '', sectionName = '',
+  pages, depth = 0, selectedIds, onToggle, sectionId = '', sectionName = '', myParentName = '',
 }: {
   pages: CUPage[]
   depth?: number
   selectedIds: Set<string>
-  onToggle: (page: CUPage, withChildren: boolean, sectionId: string, sectionName: string) => void
+  onToggle: (page: CUPage, withChildren: boolean, sectionId: string, sectionName: string, parentName: string) => void
   sectionId?: string
   sectionName?: string
+  myParentName?: string // name of the container holding these pages
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(pages.map(p => p.id))
@@ -41,7 +64,6 @@ function PageTree({
         const hasChildren = (page.pages?.length ?? 0) > 0
         const isExpanded = expanded.has(page.id)
         const isSelected = selectedIds.has(page.id)
-        // At depth 0, each page is its own section
         const mySectionId = depth === 0 ? page.id : sectionId
         const mySectionName = depth === 0 ? page.name : sectionName
 
@@ -59,11 +81,11 @@ function PageTree({
                 {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
               </button>
 
-              {/* Checkbox — disabled on section pages, they're just containers */}
+              {/* Checkbox — disabled for sections (they're just folders) */}
               <button
-                onClick={() => !hasChildren && onToggle(page, false, mySectionId, mySectionName)}
+                onClick={() => !hasChildren && onToggle(page, false, mySectionId, mySectionName, myParentName)}
                 className={`flex-shrink-0 ${hasChildren ? 'cursor-default opacity-30' : ''}`}
-                title={hasChildren ? 'Section header — use "Import all" to select pages inside' : ''}
+                title={hasChildren ? 'Section — use "Import all" to select pages inside' : undefined}
               >
                 {isSelected
                   ? <CheckSquare className="w-4 h-4 text-teal-600" />
@@ -76,15 +98,15 @@ function PageTree({
                 ? <Layers className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
                 : <File className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
               }
-              <span className={`text-sm flex-1 truncate ${hasChildren ? 'font-medium text-gray-500 italic' : 'text-gray-700'}`}>
+              <span className={`text-sm flex-1 truncate ${hasChildren ? 'font-medium text-gray-400 italic' : 'text-gray-700'}`}>
                 {page.name}
                 {hasChildren && <span className="ml-1.5 text-xs text-amber-500 not-italic font-normal">section</span>}
               </span>
 
-              {/* Import all sub-pages */}
+              {/* Import all: only selects leaf pages under this section */}
               {hasChildren && (
                 <button
-                  onClick={() => onToggle(page, true, mySectionId, mySectionName)}
+                  onClick={() => onToggle(page, true, mySectionId, mySectionName, page.name)}
                   className="text-xs text-teal-600 hover:underline opacity-0 group-hover:opacity-100 flex-shrink-0 ml-2 pr-3 font-medium"
                 >
                   Import all →
@@ -100,6 +122,7 @@ function PageTree({
                 onToggle={onToggle}
                 sectionId={mySectionId}
                 sectionName={mySectionName}
+                myParentName={page.name}
               />
             )}
           </div>
@@ -114,33 +137,12 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
   const router = useRouter()
   const [step, setStep] = useState<Step>('connect')
 
-  // Connect — token persisted in localStorage
+  // Connect
   const [token, setToken] = useState(() =>
     typeof window !== 'undefined' ? (localStorage.getItem('cu_token') ?? '') : ''
   )
   const [connecting, setConnecting] = useState(false)
   const [autoConnecting, setAutoConnecting] = useState(false)
-
-  // Auto-connect if token already saved
-  useEffect(() => {
-    const saved = localStorage.getItem('cu_token')
-    if (saved && step === 'connect') {
-      setAutoConnecting(true)
-      fetch('/api/admin/clickup/workspaces', { headers: { 'x-clickup-token': saved } })
-        .then(r => r.json())
-        .then(data => {
-          if (data.workspaces?.length) {
-            setWorkspaces(data.workspaces)
-            const wsId = data.workspaces[0].id
-            setWorkspaceId(wsId)
-            return loadDocs(wsId)
-          }
-        })
-        .catch(() => {/* token expired, just show form */})
-        .finally(() => setAutoConnecting(false))
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
   const [error, setError] = useState('')
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [workspaceId, setWorkspaceId] = useState('')
@@ -158,7 +160,7 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
   const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(new Set())
   const [selectedPages, setSelectedPages] = useState<SelectedPage[]>([])
 
-  // Assign — just a team, no category needed
+  // Assign
   const [assignTeamId, setAssignTeamId] = useState('')
 
   // Results
@@ -166,6 +168,26 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
 
   const filteredDocs = docs.filter(d => !docSearch || d.name.toLowerCase().includes(docSearch.toLowerCase()))
 
+  // Auto-connect if token saved
+  useEffect(() => {
+    const saved = localStorage.getItem('cu_token')
+    if (saved && step === 'connect') {
+      setAutoConnecting(true)
+      fetch('/api/admin/clickup/workspaces', { headers: { 'x-clickup-token': saved } })
+        .then(r => r.json())
+        .then(data => {
+          if (data.workspaces?.length) {
+            setWorkspaces(data.workspaces)
+            const wsId = data.workspaces[0].id
+            setWorkspaceId(wsId)
+            return loadDocs(wsId)
+          }
+        })
+        .catch(() => {})
+        .finally(() => setAutoConnecting(false))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ── Connect ──────────────────────────────────────────────────────────
   async function handleConnect() {
@@ -174,7 +196,7 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
       const res = await fetch('/api/admin/clickup/workspaces', { headers: { 'x-clickup-token': token } })
       const data = await res.json()
       if (!res.ok) { setError(data.error ?? 'Connection failed'); return }
-      localStorage.setItem('cu_token', token) // save for next time
+      localStorage.setItem('cu_token', token)
       setWorkspaces(data.workspaces)
       const wsId = data.workspaces.length === 1 ? data.workspaces[0].id : ''
       if (wsId) { setWorkspaceId(wsId); await loadDocs(wsId) }
@@ -185,13 +207,13 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
   async function loadDocs(wsId: string) {
     setLoadingDocs(true)
     try {
-      const res = await fetch(`/api/admin/clickup/docs?workspaceId=${wsId}`, { headers: { 'x-clickup-token': token } })
+      const res = await fetch(`/api/admin/clickup/docs?workspaceId=${wsId}`, { headers: { 'x-clickup-token': token || localStorage.getItem('cu_token') || '' } })
       const data = await res.json()
       if (res.ok) { setDocs(data.docs ?? []); setStep('docs') }
     } finally { setLoadingDocs(false) }
   }
 
-  // ── Select Doc → load page tree ───────────────────────────────────────
+  // ── Select Doc ────────────────────────────────────────────────────────
   async function selectDoc(doc: ClickUpDoc) {
     setSelectedDoc(doc)
     setPageTree([])
@@ -202,16 +224,15 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
     setLoadingPages(true)
     setStep('pages')
     try {
+      const t = token || localStorage.getItem('cu_token') || ''
       const res = await fetch(
         `/api/admin/clickup/pages?workspaceId=${workspaceId}&docId=${doc.id}`,
-        { headers: { 'x-clickup-token': token } }
+        { headers: { 'x-clickup-token': t } }
       )
       const data = await res.json()
       if (res.ok) {
         setPageTree(data.pages ?? [])
-        if ((data.pages ?? []).length === 0) {
-          setPagesError(`No pages returned from ClickUp. Doc ID: ${doc.id}`)
-        }
+        if (!data.pages?.length) setPagesError(`No pages returned. Doc ID: ${doc.id}`)
       } else {
         setPagesError(data.error ?? 'Failed to load pages')
       }
@@ -221,53 +242,63 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
   }
 
   // ── Page selection ────────────────────────────────────────────────────
-  function flattenPages(pages: CUPage[]): CUPage[] {
-    const result: CUPage[] = []
-    for (const p of pages) {
-      result.push(p)
-      if (p.pages?.length) result.push(...flattenPages(p.pages))
+  function handleTogglePage(page: CUPage, withChildren: boolean, sectionId: string, sectionName: string, parentName: string) {
+    if (withChildren) {
+      // "Import all →" clicked on a section: only get leaf pages with correct parent names
+      const leaves = flattenLeaves([page], page.name)
+      const ids = leaves.map(l => l.id)
+      const allSelected = ids.every(id => selectedPageIds.has(id))
+
+      setSelectedPageIds(prev => {
+        const next = new Set(prev)
+        if (allSelected) ids.forEach(id => next.delete(id))
+        else ids.forEach(id => next.add(id))
+        return next
+      })
+      setSelectedPages(prev => {
+        if (allSelected) return prev.filter(p => !ids.includes(p.id))
+        const existing = new Set(prev.map(p => p.id))
+        return [
+          ...prev,
+          ...leaves
+            .filter(l => !existing.has(l.id))
+            .map(l => ({ id: l.id, name: l.name, sectionId, sectionName, parentName: l.parentName })),
+        ]
+      })
+    } else {
+      // Individual leaf page clicked — don't allow selecting sections
+      if (page.pages?.length) return
+      const allSelected = selectedPageIds.has(page.id)
+
+      setSelectedPageIds(prev => {
+        const next = new Set(prev)
+        allSelected ? next.delete(page.id) : next.add(page.id)
+        return next
+      })
+      setSelectedPages(prev => {
+        if (allSelected) return prev.filter(p => p.id !== page.id)
+        if (prev.some(p => p.id === page.id)) return prev
+        return [...prev, { id: page.id, name: page.name, sectionId, sectionName, parentName }]
+      })
     }
-    return result
-  }
-
-  function handleTogglePage(page: CUPage, withChildren: boolean, sectionId: string, sectionName: string) {
-    const allPages = withChildren ? flattenPages([page]) : [page]
-    const ids = allPages.map(p => p.id)
-    const allSelected = ids.every(id => selectedPageIds.has(id))
-
-    setSelectedPageIds(prev => {
-      const next = new Set(prev)
-      if (allSelected) ids.forEach(id => next.delete(id))
-      else ids.forEach(id => next.add(id))
-      return next
-    })
-    setSelectedPages(prev => {
-      if (allSelected) return prev.filter(p => !ids.includes(p.id))
-      const existing = new Set(prev.map(p => p.id))
-      return [
-        ...prev,
-        ...allPages
-          .filter(p => !existing.has(p.id))
-          .map(p => ({ id: p.id, name: p.name, sectionId, sectionName })),
-      ]
-    })
   }
 
   // ── Import ────────────────────────────────────────────────────────────
   async function handleImport() {
     setStep('importing')
     try {
-      const pagesWithAssignment = selectedPages.map(p => ({
+      const pagesPayload = selectedPages.map(p => ({
         id: p.id,
         name: p.name,
         teamId: assignTeamId || null,
+        parentName: p.parentName || null, // used to auto-create category
         categoryId: null,
       }))
 
       const res = await fetch('/api/admin/clickup/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, workspaceId, docId: selectedDoc!.id, pages: pagesWithAssignment }),
+        body: JSON.stringify({ token: token || localStorage.getItem('cu_token'), workspaceId, docId: selectedDoc!.id, pages: pagesPayload }),
       })
       const data = await res.json()
       setResults(data.results ?? [])
@@ -288,7 +319,7 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
     <div className="max-w-3xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-navy-700">Import from ClickUp</h1>
-        <p className="text-gray-500 text-sm mt-0.5">Browse your ClickUp Docs hierarchy and import individual pages as SOPs</p>
+        <p className="text-gray-500 text-sm mt-0.5">Browse your ClickUp Docs hierarchy and import pages as SOPs</p>
       </div>
 
       {/* Step bar */}
@@ -328,16 +359,6 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
             />
             <p className="text-xs text-gray-400 mt-1">ClickUp → Profile → Settings → Apps → API Token</p>
           </div>
-          {workspaces.length > 1 && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Workspace</label>
-              <select value={workspaceId} onChange={e => { setWorkspaceId(e.target.value); loadDocs(e.target.value) }}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                <option value="">Choose workspace…</option>
-                {workspaces.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-              </select>
-            </div>
-          )}
           {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
           <button onClick={handleConnect} disabled={connecting || !token.trim()}
             className="w-full py-2.5 bg-navy-700 text-white text-sm font-medium rounded-lg hover:bg-navy-800 disabled:opacity-50 flex items-center justify-center gap-2">
@@ -352,19 +373,15 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
         <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100">
             <h2 className="font-semibold text-navy-700">Select a Doc</h2>
-            <p className="text-xs text-gray-400 mt-0.5">{docs.length} docs found · search to filter</p>
-            <input
-              type="text"
-              value={docSearch}
-              onChange={e => setDocSearch(e.target.value)}
+            <p className="text-xs text-gray-400 mt-0.5">{docs.length} docs found</p>
+            <input type="text" value={docSearch} onChange={e => setDocSearch(e.target.value)}
               placeholder="Search docs… e.g. 10.4 PHT"
               className="mt-3 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-              autoFocus
-            />
+              autoFocus />
           </div>
           <div className="divide-y divide-gray-50 max-h-[400px] overflow-y-auto">
             {filteredDocs.length === 0
-              ? <p className="px-5 py-8 text-center text-sm text-gray-400">No docs match your search</p>
+              ? <p className="px-5 py-8 text-center text-sm text-gray-400">No docs match</p>
               : filteredDocs.map(doc => (
                 <button key={doc.id} onClick={() => selectDoc(doc)}
                   className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-gray-50 transition-colors text-left">
@@ -387,12 +404,9 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
           <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
             <div>
               <h2 className="font-semibold text-navy-700">{selectedDoc?.name}</h2>
-              <p className="text-xs text-gray-400 mt-0.5">
-                {selectedPageIds.size} page{selectedPageIds.size !== 1 ? 's' : ''} selected
-              </p>
+              <p className="text-xs text-gray-400 mt-0.5">{selectedPageIds.size} pages selected</p>
             </div>
-            <button onClick={() => setStep('docs')}
-              className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg px-2 py-1">
+            <button onClick={() => setStep('docs')} className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg px-2 py-1">
               ← Change doc
             </button>
           </div>
@@ -406,14 +420,13 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
               <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{pagesError}</p>
             </div>
           ) : pageTree.length === 0 ? (
-            <p className="px-5 py-8 text-center text-sm text-gray-400">No pages found in this doc</p>
+            <p className="px-5 py-8 text-center text-sm text-gray-400">No pages found</p>
           ) : (
             <div className="max-h-[450px] overflow-y-auto py-2">
-              <div className="mx-4 mb-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
-                <p className="text-xs text-amber-700">
-                  <span className="font-semibold">Sections</span> (shown in <span className="italic">italics</span>) are folder headers — they don&apos;t contain SOP content.
-                  Hover a section and click <span className="text-teal-600 font-medium">Import all →</span> to select every page inside it.
-                  Only tick individual pages (non-italic) for the actual SOPs.
+              <div className="mx-4 mb-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-xs text-blue-700">
+                  <span className="font-semibold">Sections</span> (shown in italic) are folder headers — hover and click <span className="font-semibold text-teal-600">Import all →</span> to select all SOPs inside.
+                  Categories will be <span className="font-semibold">auto-created</span> from section names when you import.
                 </p>
               </div>
               <PageTree pages={pageTree} selectedIds={selectedPageIds} onToggle={handleTogglePage} />
@@ -424,7 +437,7 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
             <button onClick={() => setStep('docs')} className="text-sm text-gray-400 hover:text-gray-600">← Back</button>
             <button onClick={() => setStep('assign')} disabled={selectedPageIds.size === 0}
               className="px-4 py-2 bg-navy-700 text-white text-sm font-medium rounded-lg hover:bg-navy-800 disabled:opacity-50">
-              Next: Assign → ({selectedPageIds.size} page{selectedPageIds.size !== 1 ? 's' : ''})
+              Next: Assign → ({selectedPageIds.size} pages)
             </button>
           </div>
         </div>
@@ -434,24 +447,37 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
       {step === 'assign' && (
         <div className="bg-white border border-gray-200 rounded-2xl p-6 space-y-5">
           <div>
-            <h2 className="font-semibold text-navy-700">Ready to import</h2>
+            <h2 className="font-semibold text-navy-700">Assign to Team</h2>
             <p className="text-sm text-gray-400 mt-0.5">
-              {selectedPageIds.size} page{selectedPageIds.size !== 1 ? 's' : ''} from <span className="text-navy-700 font-medium">{selectedDoc?.name}</span> will be imported as draft SOPs. You can assign categories later.
+              {selectedPageIds.size} pages from <span className="text-navy-700 font-medium">{selectedDoc?.name}</span>.
+              Categories will be auto-created from ClickUp section names.
             </p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Team <span className="text-gray-400 font-normal">(optional)</span></label>
-            <select
-              value={assignTeamId}
-              onChange={e => setAssignTeamId(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-            >
-              <option value="">No team — assign later</option>
+            <label className="block text-sm font-medium text-gray-700 mb-1">App Team</label>
+            <select value={assignTeamId} onChange={e => setAssignTeamId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+              <option value="">No team</option>
               {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
-            <p className="text-xs text-gray-400 mt-1">Categories can be created and assigned to each SOP after import.</p>
           </div>
+
+          {/* Preview of sections → categories that will be created */}
+          {(() => {
+            const sectionNames = [...new Set(selectedPages.map(p => p.parentName).filter(Boolean))]
+            if (!sectionNames.length) return null
+            return (
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Categories that will be created</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {sectionNames.map(name => (
+                    <span key={name} className="text-xs bg-teal-100 text-teal-700 border border-teal-200 rounded-full px-2 py-0.5">{name}</span>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
 
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700">
             Images will be copied from ClickUp into your app permanently.
@@ -462,7 +488,7 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
             <button onClick={handleImport}
               className="px-5 py-2.5 bg-navy-700 text-white text-sm font-semibold rounded-lg hover:bg-navy-800 flex items-center gap-2">
               <Download className="w-4 h-4" />
-              Import {selectedPageIds.size} Page{selectedPageIds.size !== 1 ? 's' : ''}
+              Import {selectedPageIds.size} Pages
             </button>
           </div>
         </div>
@@ -473,7 +499,7 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
         <div className="bg-white border border-gray-200 rounded-2xl p-10 flex flex-col items-center gap-4">
           <Loader2 className="w-10 h-10 text-teal-600 animate-spin" />
           <p className="font-semibold text-navy-700">Importing {selectedPageIds.size} pages…</p>
-          <p className="text-sm text-gray-400 text-center">Downloading images and saving SOPs. This may take a minute.</p>
+          <p className="text-sm text-gray-400 text-center">Creating categories and saving SOPs. This may take a minute.</p>
         </div>
       )}
 
@@ -487,14 +513,12 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
             }
             <div>
               <p className="font-semibold text-navy-700">Import complete</p>
-              <div className="flex gap-3 mt-1">
+              <div className="flex gap-3 mt-1 flex-wrap">
                 <span className="text-sm text-teal-600 font-medium">✓ {importedCount} imported</span>
-                {skippedCount > 0 && <span className="text-sm text-gray-400">⊘ {skippedCount} empty pages skipped</span>}
+                {skippedCount > 0 && <span className="text-sm text-gray-400">⊘ {skippedCount} empty (skipped)</span>}
                 {errorCount > 0 && <span className="text-sm text-red-500">✕ {errorCount} errors</span>}
               </div>
-              {skippedCount > 0 && (
-                <p className="text-xs text-gray-400 mt-1">Empty pages are section headers with no content — this is normal.</p>
-              )}
+              {skippedCount > 0 && <p className="text-xs text-gray-400 mt-1">Skipped pages had no content — normal for section headers.</p>}
             </div>
           </div>
           <div className="divide-y divide-gray-50 max-h-[300px] overflow-y-auto">
@@ -519,7 +543,7 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
             </button>
             <button onClick={() => { setStep('pages'); setResults([]) }}
               className="px-4 py-2 border border-gray-200 text-gray-600 text-sm rounded-lg hover:bg-gray-50">
-              Import More Pages
+              Import More
             </button>
           </div>
         </div>

@@ -39,7 +39,7 @@ export default async function SopsPage({ searchParams }: { searchParams: SearchP
       profiles(id, full_name),
       sop_teams(team_id, teams(id, name))
     `)
-    .order('updated_at', { ascending: false })
+    .order('title', { ascending: true })
 
   if (teamId) {
     query = (query as typeof query).eq('sop_teams.team_id', teamId)

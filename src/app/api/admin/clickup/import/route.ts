@@ -44,7 +44,6 @@ export async function POST(request: Request) {
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
   if (!profile || profile.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  // pages now includes per-page teamId/categoryId
   const { token, workspaceId, docId, pages } = await request.json()
   if (!token || !workspaceId || !docId || !pages?.length) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
@@ -52,23 +51,58 @@ export async function POST(request: Request) {
 
   await ensureBucket(adminClient)
 
+  // Cache for auto-created categories: key = `${teamId}::${categoryName}`
+  const categoryCache: Record<string, string> = {}
+
+  async function resolveCategory(teamId: string | null, parentName: string | null): Promise<string | null> {
+    if (!teamId || !parentName) return null
+    const cacheKey = `${teamId}::${parentName}`
+    if (categoryCache[cacheKey]) return categoryCache[cacheKey]
+
+    // Look for existing category with this name under the team
+    const { data: existing } = await supabase
+      .from('categories')
+      .select('id')
+      .eq('name', parentName)
+      .eq('team_id', teamId)
+      .maybeSingle()
+
+    if (existing) {
+      categoryCache[cacheKey] = existing.id
+      return existing.id
+    }
+
+    // Create it
+    const { data: created } = await supabase
+      .from('categories')
+      .insert({ name: parentName, team_id: teamId, display_order: 999 })
+      .select('id')
+      .single()
+
+    if (created) {
+      categoryCache[cacheKey] = created.id
+      return created.id
+    }
+    return null
+  }
+
   const results: { name: string; status: 'imported' | 'skipped' | 'error'; error?: string }[] = []
 
   for (const page of pages) {
     const pageTeamId: string | null = page.teamId ?? null
-    const pageCategoryId: string | null = page.categoryId ?? null
+    // Resolve category: explicit categoryId OR auto-create from parentName
+    const pageCategoryId: string | null =
+      page.categoryId ?? (await resolveCategory(pageTeamId, page.parentName ?? null))
 
     try {
-      // Fetch page content
       const res = await fetch(
         `https://api.clickup.com/api/v3/workspaces/${workspaceId}/docs/${docId}/pages/${page.id}?content_format=text/md`,
         { headers: { Authorization: token } }
       )
-      if (!res.ok) { results.push({ name: page.name, status: 'error', error: 'Failed to fetch content' }); continue }
+      if (!res.ok) { results.push({ name: page.name, status: 'error', error: `HTTP ${res.status}` }); continue }
 
       const data = await res.json()
       const rawContent = data.content ?? ''
-
       if (!rawContent.trim()) { results.push({ name: page.name, status: 'skipped' }); continue }
 
       const processedMarkdown = await processImages(rawContent, token, adminClient)
