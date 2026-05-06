@@ -45,6 +45,7 @@ export default async function EditSopPage({ params }: { params: { id: string } }
         categories={categories ?? []}
         teams={teams ?? []}
         authorId={user.id}
+        userRole={profile.role}
       />
     </div>
   )

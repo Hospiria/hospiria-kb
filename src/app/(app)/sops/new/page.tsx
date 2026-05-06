@@ -28,6 +28,7 @@ export default async function NewSopPage() {
         categories={categories ?? []}
         teams={teams ?? []}
         authorId={user.id}
+        userRole={profile.role}
       />
     </div>
   )

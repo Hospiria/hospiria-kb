@@ -19,7 +19,7 @@ import { useRouter } from 'next/navigation'
 import {
   Bold, Italic, Underline as UnderlineIcon, List, ListOrdered,
   Heading1, Heading2, Heading3, Table as TableIcon, Link as LinkIcon,
-  Image as ImageIcon, Minus, AlignLeft, Save, Send, Undo, Redo,
+  Image as ImageIcon, Minus, AlignLeft, Save, Send, Undo, Redo, Globe,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -33,6 +33,7 @@ interface SopEditorProps {
   categories: Category[]
   teams: Team[]
   authorId: string
+  userRole?: string
 }
 
 export function SopEditor({
@@ -45,13 +46,16 @@ export function SopEditor({
   categories,
   teams,
   authorId,
+  userRole = 'junior_team_leader',
 }: SopEditorProps) {
   const [title, setTitle] = useState(initialTitle)
   const [categoryId, setCategoryId] = useState(initialCategoryId ?? '')
   const [selectedTeams, setSelectedTeams] = useState<string[]>(initialTeamIds)
   const [saving, setSaving] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [publishing, setPublishing] = useState(false)
   const [message, setMessage] = useState('')
+  const canPublishDirectly = ['super_admin', 'approver', 'team_leader'].includes(userRole)
   const router = useRouter()
   const supabase = createClient()
 
@@ -79,16 +83,18 @@ export function SopEditor({
     )
   }
 
-  async function save(submit = false) {
+  async function save(mode: 'draft' | 'submit' | 'publish' = 'draft') {
     if (!editor) return
     if (!title.trim()) { setMessage('Title is required'); return }
 
-    submit ? setSubmitting(true) : setSaving(true)
+    if (mode === 'draft') setSaving(true)
+    else if (mode === 'submit') setSubmitting(true)
+    else setPublishing(true)
     setMessage('')
 
     try {
       const content = editor.getJSON() as TiptapContent
-      const status = submit ? 'submitted' : 'draft'
+      const status = mode === 'publish' ? 'live' : mode === 'submit' ? 'submitted' : 'draft'
 
       let id = sopId
       if (sopId) {
@@ -119,41 +125,59 @@ export function SopEditor({
           )
         }
 
-        // If submitting, notify approvers for each team
-        if (submit) {
-          for (const teamId of selectedTeams) {
-            const { data: approvers } = await supabase
-              .from('profiles')
-              .select('id')
-              .eq('primary_team_id', teamId)
-              .in('role', ['approver', 'super_admin'])
+        if (mode === 'publish') {
+          // Create version snapshot
+          const { data: current } = await supabase.from('sops').select('current_version').eq('id', id).single()
+          const newVersion = (current?.current_version ?? 0) + 1
+          await supabase.from('sops').update({ current_version: newVersion }).eq('id', id)
+          await supabase.from('sop_versions').insert({
+            sop_id: id,
+            content,
+            version_number: newVersion,
+            created_by: authorId,
+          })
+          // Auto-generate quiz (fire and forget)
+          fetch('/api/admin/quizzes/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sopId: id }),
+          }).catch(() => {})
+        }
 
-            if (approvers) {
-              await supabase.from('approvals').insert({
-                sop_id: id,
-                approver_id: approvers[0]?.id ?? null,
-                status: 'pending',
+        if (mode === 'submit') {
+          // Create approval record
+          await supabase.from('approvals').insert({
+            sop_id: id,
+            approver_id: null,
+            status: 'pending',
+          })
+
+          // Notify ALL approvers + super_admins (regardless of team)
+          const { data: approvers } = await supabase
+            .from('profiles')
+            .select('id')
+            .in('role', ['approver', 'super_admin', 'team_leader'])
+
+          if (approvers) {
+            for (const a of approvers) {
+              await supabase.from('notifications').insert({
+                user_id: a.id,
+                type: 'sop_submitted',
+                message: `New SOP submitted for review: "${title}"`,
+                link: `/sops/${id}/approve`,
               })
-              for (const a of approvers) {
-                await supabase.from('notifications').insert({
-                  user_id: a.id,
-                  type: 'sop_submitted',
-                  message: `New SOP submitted for review: "${title}"`,
-                  link: `/sops/${id}/approve`,
-                })
-              }
             }
           }
-          router.push(`/sops/${id}`)
-        } else {
-          router.push(`/sops/${id}`)
         }
+
+        router.push(`/sops/${id}`)
       }
-    } catch (e) {
+    } catch {
       setMessage('Something went wrong. Please try again.')
     } finally {
       setSaving(false)
       setSubmitting(false)
+      setPublishing(false)
     }
   }
 
@@ -248,21 +272,32 @@ export function SopEditor({
             <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-2 py-1">{message}</p>
           )}
           <button
-            onClick={() => save(false)}
-            disabled={saving || submitting}
+            onClick={() => save('draft')}
+            disabled={saving || submitting || publishing}
             className="w-full flex items-center justify-center gap-2 py-2 px-3 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
           >
             <Save className="w-4 h-4" />
             {saving ? 'Saving…' : 'Save Draft'}
           </button>
-          <button
-            onClick={() => save(true)}
-            disabled={saving || submitting}
-            className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-navy-700 text-white text-sm font-medium rounded-lg hover:bg-navy-800 transition-colors disabled:opacity-50"
-          >
-            <Send className="w-4 h-4" />
-            {submitting ? 'Submitting…' : 'Submit for Approval'}
-          </button>
+          {canPublishDirectly ? (
+            <button
+              onClick={() => save('publish')}
+              disabled={saving || submitting || publishing}
+              className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+            >
+              <Globe className="w-4 h-4" />
+              {publishing ? 'Publishing…' : 'Publish'}
+            </button>
+          ) : (
+            <button
+              onClick={() => save('submit')}
+              disabled={saving || submitting || publishing}
+              className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-navy-700 text-white text-sm font-medium rounded-lg hover:bg-navy-800 transition-colors disabled:opacity-50"
+            >
+              <Send className="w-4 h-4" />
+              {submitting ? 'Submitting…' : 'Submit for Approval'}
+            </button>
+          )}
         </div>
 
         {/* Category */}
