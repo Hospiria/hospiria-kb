@@ -29,8 +29,15 @@ export function QuizGenerateAllButton({ missingCount = 0, sopId, sopTitle, singl
       })
       const data = await res.json()
       if (!res.ok) { setError(data.error ?? 'Generation failed'); return }
+      // Check if generation actually succeeded
+      const failed = (data.results ?? []).filter((r: { status: string; error?: string }) => r.status === 'error')
+      if (data.generated === 0) {
+        setError(failed[0]?.error ?? 'Generation failed — check Anthropic API key')
+        return
+      }
       setDone(true)
-      router.refresh()
+      // Force full reload so server data refreshes
+      window.location.reload()
     } catch {
       setError('Network error')
     } finally {
