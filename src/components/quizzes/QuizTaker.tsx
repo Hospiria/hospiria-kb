@@ -82,7 +82,7 @@ export function QuizTaker({ enrollmentId, enrollmentStatus, existingScore, quiz,
           </div>
           <p className="text-gray-500 text-sm mb-2">Pass mark: {quiz.pass_mark}%</p>
           {passed ? (
-            <p className="text-green-700 font-medium text-lg">Well done! You've completed this quiz.</p>
+            <p className="text-green-700 font-medium text-lg">Well done! You&apos;ve completed this quiz.</p>
           ) : (
             <div className="mt-4 bg-red-50 border border-red-200 rounded-xl p-4">
               <p className="text-red-700 font-medium">You need {quiz.pass_mark}% to pass.</p>
@@ -145,7 +145,7 @@ export function QuizTaker({ enrollmentId, enrollmentStatus, existingScore, quiz,
             onClick={() => setPhase('taking')}
             className="flex items-center gap-2 px-6 py-3 bg-teal-600 text-white font-semibold rounded-xl hover:bg-teal-700 transition-colors"
           >
-            I've read this — Start Quiz
+            I&apos;ve read this — Start Quiz
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>
