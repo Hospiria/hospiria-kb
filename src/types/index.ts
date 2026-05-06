@@ -83,6 +83,51 @@ export interface Notification {
   created_at: string
 }
 
+// Quiz types
+export interface QuizQuestion {
+  id: string
+  type: 'multiple_choice' | 'true_false'
+  question: string
+  options: string[]
+  correct: number
+}
+
+export interface Quiz {
+  id: string
+  sop_id: string
+  title: string
+  questions: QuizQuestion[]
+  pass_mark: number
+  status: 'active' | 'archived'
+  created_at: string
+  sops?: Sop
+}
+
+export type EnrollmentStatus = 'pending' | 'passed' | 'failed'
+
+export interface QuizEnrollment {
+  id: string
+  quiz_id: string
+  user_id: string
+  enrolled_by: string | null
+  due_date: string
+  status: EnrollmentStatus
+  score: number | null
+  enrolled_at: string
+  completed_at: string | null
+  quizzes?: Quiz
+  profiles?: Profile
+}
+
+export interface QuizAttempt {
+  id: string
+  enrollment_id: string
+  answers: Record<string, number>
+  score: number
+  passed: boolean
+  completed_at: string
+}
+
 // Tiptap JSON content structure
 export interface TiptapContent {
   type: 'doc'

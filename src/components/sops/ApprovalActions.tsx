@@ -77,6 +77,13 @@ export function ApprovalActions({ sopId, approvalId, authorId, sopTitle }: Props
         }
       }
 
+      // Auto-generate quiz for the newly published SOP (fire and forget)
+      fetch('/api/admin/quizzes/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sopId }),
+      }).catch(() => {})
+
       router.push(`/sops/${sopId}`)
       router.refresh()
     } finally {

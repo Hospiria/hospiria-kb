@@ -1,23 +1,32 @@
 import { TiptapContent, TiptapNode } from '@/types'
 
+// Unescape markdown backslash escapes: \. \( \) \[ \] \- etc.
+function unescapeMarkdown(text: string): string {
+  return text.replace(/\\([^\s])/g, '$1')
+}
+
 function parseInline(text: string): TiptapNode[] {
   if (!text) return [{ type: 'text', text: '' }]
+  const unescaped = unescapeMarkdown(text)
   const nodes: TiptapNode[] = []
-  // Match **bold**, *italic*, `code`, or plain text
-  const regex = /\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|([^*`]+)/g
+  // Match **bold**, *italic*, `code`, [link](url), or plain text
+  const regex = /\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|\[([^\]]+)\]\(([^)]+)\)|([^*`[\]]+)/g
   let match
-  while ((match = regex.exec(text)) !== null) {
+  while ((match = regex.exec(unescaped)) !== null) {
     if (match[1] !== undefined) {
       nodes.push({ type: 'text', text: match[1], marks: [{ type: 'bold' }] })
     } else if (match[2] !== undefined) {
       nodes.push({ type: 'text', text: match[2], marks: [{ type: 'italic' }] })
     } else if (match[3] !== undefined) {
       nodes.push({ type: 'text', text: match[3], marks: [{ type: 'code' }] })
-    } else if (match[4] !== undefined) {
-      nodes.push({ type: 'text', text: match[4] })
+    } else if (match[4] !== undefined && match[5] !== undefined) {
+      // Link — render as text with link mark
+      nodes.push({ type: 'text', text: match[4], marks: [{ type: 'link', attrs: { href: match[5] } }] })
+    } else if (match[6] !== undefined) {
+      nodes.push({ type: 'text', text: match[6] })
     }
   }
-  return nodes.length > 0 ? nodes : [{ type: 'text', text: text }]
+  return nodes.length > 0 ? nodes : [{ type: 'text', text: unescaped }]
 }
 
 function makeListItem(text: string): TiptapNode {
@@ -25,6 +34,14 @@ function makeListItem(text: string): TiptapNode {
     type: 'listItem',
     content: [{ type: 'paragraph', content: parseInline(text) }],
   }
+}
+
+/** Peek ahead past blank lines to see if the next content line matches a pattern */
+function peekNextContentLine(lines: string[], from: number): string | null {
+  for (let j = from; j < lines.length; j++) {
+    if (lines[j].trim() !== '') return lines[j]
+  }
+  return null
 }
 
 export function markdownToTiptap(markdown: string): TiptapContent {
@@ -76,23 +93,40 @@ export function markdownToTiptap(markdown: string): TiptapContent {
       continue
     }
 
-    // Bullet list — collect consecutive bullet lines
+    // Bullet list — collect consecutive bullet lines (skip blank lines between items)
     if (line.match(/^[-*]\s+/)) {
       const items: TiptapNode[] = []
-      while (i < lines.length && lines[i].match(/^[-*]\s+/)) {
-        items.push(makeListItem(lines[i].replace(/^[-*]\s+/, '')))
-        i++
+      while (i < lines.length) {
+        if (lines[i].match(/^[-*]\s+/)) {
+          items.push(makeListItem(lines[i].replace(/^[-*]\s+/, '')))
+          i++
+        } else if (lines[i].trim() === '') {
+          // Only continue if the next content line is also a bullet
+          const next = peekNextContentLine(lines, i + 1)
+          if (next?.match(/^[-*]\s+/)) { i++; continue }
+          break
+        } else {
+          break
+        }
       }
       nodes.push({ type: 'bulletList', content: items })
       continue
     }
 
-    // Ordered list — collect consecutive numbered lines
+    // Ordered list — collect consecutive numbered lines (skip blank lines between items)
     if (line.match(/^\d+\.\s+/)) {
       const items: TiptapNode[] = []
-      while (i < lines.length && lines[i].match(/^\d+\.\s+/)) {
-        items.push(makeListItem(lines[i].replace(/^\d+\.\s+/, '')))
-        i++
+      while (i < lines.length) {
+        if (lines[i].match(/^\d+\.\s+/)) {
+          items.push(makeListItem(lines[i].replace(/^\d+\.\s+/, '')))
+          i++
+        } else if (lines[i].trim() === '') {
+          const next = peekNextContentLine(lines, i + 1)
+          if (next?.match(/^\d+\.\s+/)) { i++; continue }
+          break
+        } else {
+          break
+        }
       }
       nodes.push({ type: 'orderedList', content: items })
       continue
@@ -105,18 +139,29 @@ export function markdownToTiptap(markdown: string): TiptapContent {
       continue
     }
 
-    // Markdown table — collect consecutive | lines
+    // Markdown table — collect | lines, skipping blank lines between rows
     if (line.match(/^\|.+\|/)) {
       const tableLines: string[] = []
-      while (i < lines.length && lines[i].match(/^\|.+\|/)) {
-        tableLines.push(lines[i])
-        i++
+
+      while (i < lines.length) {
+        const cur = lines[i]
+        if (cur.match(/^\|.+\|/)) {
+          tableLines.push(cur)
+          i++
+        } else if (cur.trim() === '') {
+          // Skip blank lines only if the next content line is also a table row
+          const next = peekNextContentLine(lines, i + 1)
+          if (next?.match(/^\|.+\|/)) { i++; continue }
+          break
+        } else {
+          break
+        }
       }
 
-      // Second row is separator if it contains only |, -, :, spaces
-      const hasSeparator =
-        tableLines.length > 1 &&
-        tableLines[1].replace(/[|\-:\s]/g, '').length === 0
+      // Filter out pure separator rows (|---|---|) for detection
+      const isSeparator = (row: string) => row.replace(/[|\-:\s]/g, '').length === 0
+      const nonSepLines = tableLines.filter(r => !isSeparator(r))
+      const hasSeparator = tableLines.length > 1 && isSeparator(tableLines[1])
 
       function parseRow(rowLine: string): string[] {
         return rowLine.split('|').slice(1, -1).map(c => c.trim())
@@ -124,8 +169,8 @@ export function markdownToTiptap(markdown: string): TiptapContent {
 
       const rows: TiptapNode[] = []
       for (let r = 0; r < tableLines.length; r++) {
-        if (hasSeparator && r === 1) continue // skip separator
-        const isHeaderRow = hasSeparator && r === 0
+        if (isSeparator(tableLines[r])) continue // skip separator rows
+        const isHeaderRow = hasSeparator && tableLines.indexOf(tableLines[r]) === 0
         const cells = parseRow(tableLines[r]).map(cellText => ({
           type: isHeaderRow ? 'tableHeader' : 'tableCell',
           attrs: { colspan: 1, rowspan: 1, colwidth: null },

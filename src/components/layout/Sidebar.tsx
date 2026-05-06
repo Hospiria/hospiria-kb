@@ -7,7 +7,7 @@ import { Profile } from '@/types'
 import { RoleBadge } from '@/components/ui/StatusBadge'
 import {
   LayoutDashboard, Users, Building2, Upload,
-  ChevronRight, ChevronDown, BookOpen, Users as TeamIcon, PlugZap, ListChecks,
+  ChevronRight, ChevronDown, BookOpen, Users as TeamIcon, PlugZap, ListChecks, GraduationCap,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 
@@ -75,6 +75,20 @@ export function Sidebar({ profile, teamName, teams, categories }: SidebarProps) 
         >
           <LayoutDashboard className="w-4 h-4 flex-shrink-0" />
           <span>Dashboard</span>
+        </Link>
+
+        {/* My Quizzes */}
+        <Link
+          href="/quizzes"
+          className={cn(
+            'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all',
+            pathname === '/quizzes' || pathname.startsWith('/quizzes/')
+              ? 'bg-teal-500 text-white'
+              : 'text-navy-200 hover:bg-navy-600 hover:text-white'
+          )}
+        >
+          <GraduationCap className="w-4 h-4 flex-shrink-0" />
+          <span>My Quizzes</span>
         </Link>
 
         {/* Teams → Categories */}
@@ -146,6 +160,7 @@ export function Sidebar({ profile, teamName, teams, categories }: SidebarProps) 
               { label: 'Import SOPs', href: '/admin/import', icon: Upload },
               { label: 'Import from ClickUp', href: '/admin/clickup', icon: PlugZap },
               { label: 'Manage SOPs', href: '/admin/sops', icon: ListChecks },
+              { label: 'Manage Quizzes', href: '/admin/quizzes', icon: GraduationCap },
             ].map(item => (
               <Link
                 key={item.href}

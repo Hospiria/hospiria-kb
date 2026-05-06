@@ -107,13 +107,6 @@ export async function POST(request: Request) {
       const rawContent = data.content ?? ''
       if (!rawContent.trim()) { results.push({ name: page.name, status: 'skipped' }); continue }
 
-      // Skip only if a SOP with the same title AND same category already exists
-      const dupQuery = adminClient.from('sops').select('id').eq('title', page.name)
-      const { data: existing } = pageCategoryId
-        ? await dupQuery.eq('category_id', pageCategoryId).maybeSingle()
-        : await dupQuery.is('category_id', null).maybeSingle()
-      if (existing) { results.push({ name: page.name, status: 'skipped' }); continue }
-
       const processedMarkdown = await processImages(rawContent, token, adminClient)
       const content = markdownToTiptap(processedMarkdown)
 
