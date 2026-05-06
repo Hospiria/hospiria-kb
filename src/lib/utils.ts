@@ -55,8 +55,22 @@ export const STATUS_LABELS: Record<string, string> = {
 }
 
 export const ROLE_LABELS: Record<string, string> = {
-  super_admin: 'Super Admin',
+  super_admin: 'Admin',
   approver: 'Approver',
-  author: 'Author',
+  team_leader: 'Team Leader',
+  junior_team_leader: 'Junior Team Leader',
   agent: 'Agent',
+}
+
+/** Extract a snippet of text around the first match of `query` */
+export function getSnippet(content: TiptapContent | null, query: string, length = 160): string {
+  const text = tiptapToPlainText(content)
+  if (!text) return ''
+  if (!query) return text.slice(0, length) + (text.length > length ? '…' : '')
+  const lowerText = text.toLowerCase()
+  const idx = lowerText.indexOf(query.toLowerCase())
+  if (idx === -1) return text.slice(0, length) + (text.length > length ? '…' : '')
+  const start = Math.max(0, idx - 60)
+  const end = Math.min(text.length, idx + query.length + 100)
+  return (start > 0 ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : '')
 }

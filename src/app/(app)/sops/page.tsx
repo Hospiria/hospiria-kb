@@ -8,6 +8,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge'
 import { formatDate } from '@/lib/utils'
 import { Plus, Search } from 'lucide-react'
 import { Sop } from '@/types'
+import { getSnippet } from '@/lib/utils'
 
 interface SearchParams { search?: string; status?: string; team?: string; category?: string }
 
@@ -54,7 +55,10 @@ export default async function SopsPage({ searchParams }: { searchParams: SearchP
   // team_leader, approver, super_admin see everything (no filter)
 
   if (searchParams.status) query = query.eq('status', searchParams.status)
-  if (searchParams.search) query = query.ilike('title', `%${searchParams.search}%`)
+  if (searchParams.search) {
+    // Full-text search across title + content via generated search_vector column
+    query = query.textSearch('search_vector', searchParams.search, { type: 'websearch', config: 'english' })
+  }
   if (categoryId) query = query.eq('category_id', categoryId)
 
   const { data: allSops } = await query
@@ -134,7 +138,7 @@ export default async function SopsPage({ searchParams }: { searchParams: SearchP
             <div key={category}>
               <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">{category}</h2>
               <div className="space-y-2">
-                {sops.map(sop => <SopRow key={sop.id} sop={sop} />)}
+                {sops.map(sop => <SopRow key={sop.id} sop={sop} search={searchParams.search} />)}
               </div>
             </div>
           ))}
@@ -144,11 +148,12 @@ export default async function SopsPage({ searchParams }: { searchParams: SearchP
   )
 }
 
-function SopRow({ sop }: { sop: Sop & { profiles?: { full_name: string | null } } }) {
+function SopRow({ sop, search }: { sop: Sop & { profiles?: { full_name: string | null } }; search?: string }) {
+  const snippet = search ? getSnippet(sop.content, search) : null
   return (
     <Link
       href={`/sops/${sop.id}`}
-      className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-xl hover:border-teal-300 hover:shadow-sm transition-all group"
+      className="flex items-start justify-between p-4 bg-white border border-gray-200 rounded-xl hover:border-teal-300 hover:shadow-sm transition-all group"
     >
       <div className="flex-1 min-w-0">
         <p className="font-medium text-navy-700 group-hover:text-teal-600 transition-colors truncate">
@@ -157,8 +162,11 @@ function SopRow({ sop }: { sop: Sop & { profiles?: { full_name: string | null } 
         <p className="text-xs text-gray-400 mt-0.5">
           {sop.profiles?.full_name ?? 'Unknown'} · Updated {formatDate(sop.updated_at)}
         </p>
+        {snippet && (
+          <p className="text-xs text-gray-500 mt-1.5 line-clamp-2 leading-relaxed">{snippet}</p>
+        )}
       </div>
-      <div className="ml-4">
+      <div className="ml-4 flex-shrink-0 mt-0.5">
         <StatusBadge status={sop.status} />
       </div>
     </Link>
