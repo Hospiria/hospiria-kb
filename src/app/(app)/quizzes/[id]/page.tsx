@@ -1,14 +1,16 @@
 export const dynamic = 'force-dynamic'
 
 import { createClient } from '@/lib/supabase/server'
+import { getEffectiveSession } from '@/lib/impersonation'
 import { redirect, notFound } from 'next/navigation'
 import { QuizTaker } from '@/components/quizzes/QuizTaker'
 import { TiptapContent } from '@/types'
 
 export default async function TakeQuizPage({ params }: { params: { id: string } }) {
+  const session = await getEffectiveSession()
+  if (!session) redirect('/login')
+  const { effectiveUserId } = session
   const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
 
   const { data: enrollment } = await supabase
     .from('quiz_enrollments')
@@ -20,7 +22,7 @@ export default async function TakeQuizPage({ params }: { params: { id: string } 
       )
     `)
     .eq('id', params.id)
-    .eq('user_id', user.id)
+    .eq('user_id', effectiveUserId)
     .single()
 
   if (!enrollment) notFound()

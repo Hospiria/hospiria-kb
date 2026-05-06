@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
 
 import { createClient } from '@/lib/supabase/server'
+import { getEffectiveSession } from '@/lib/impersonation'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { GraduationCap, Clock, CheckCircle, XCircle, AlertTriangle } from 'lucide-react'
@@ -18,14 +19,15 @@ function getDueStatus(dueDate: string, status: string) {
 }
 
 export default async function MyQuizzesPage() {
+  const session = await getEffectiveSession()
+  if (!session) redirect('/login')
+  const { effectiveUserId } = session
   const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
 
   const { data: enrollments } = await supabase
     .from('quiz_enrollments')
     .select('*, quizzes(id, title, pass_mark, sops(id, title))')
-    .eq('user_id', user.id)
+    .eq('user_id', effectiveUserId)
     .order('enrolled_at', { ascending: false })
 
   // Deduplicate: for each quiz, only show the latest enrollment
