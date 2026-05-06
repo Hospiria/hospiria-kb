@@ -1,3 +1,5 @@
+export const maxDuration = 60 // Allow up to 60s for AI generation
+
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'

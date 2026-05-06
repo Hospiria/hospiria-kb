@@ -47,14 +47,17 @@ export function QuizGenerateAllButton({ missingCount = 0, sopId, sopTitle, singl
 
   if (single) {
     return (
-      <button
-        onClick={handleGenerate}
-        disabled={loading || done}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 text-navy-700 transition-colors disabled:opacity-50"
-      >
-        {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3 text-amber-500" />}
-        {done ? 'Generated!' : loading ? 'Generating…' : 'Generate Quiz'}
-      </button>
+      <div className="flex flex-col items-end gap-1">
+        <button
+          onClick={handleGenerate}
+          disabled={loading || done}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 text-navy-700 transition-colors disabled:opacity-50"
+        >
+          {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3 text-amber-500" />}
+          {done ? 'Generated!' : loading ? 'Generating…' : 'Generate Quiz'}
+        </button>
+        {error && <p className="text-xs text-red-500 max-w-xs text-right">{error}</p>}
+      </div>
     )
   }
 
