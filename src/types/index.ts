@@ -1,4 +1,4 @@
-export type Role = 'super_admin' | 'approver' | 'author' | 'agent'
+export type Role = 'super_admin' | 'approver' | 'team_leader' | 'junior_team_leader' | 'agent'
 
 export type SopStatus = 'draft' | 'submitted' | 'changes_requested' | 'live' | 'archived'
 

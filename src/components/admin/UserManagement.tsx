@@ -109,9 +109,10 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
             className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
           >
             <option value="agent">Agent</option>
-            <option value="author">Author</option>
+            <option value="junior_team_leader">Junior Team Leader</option>
+            <option value="team_leader">Team Leader</option>
             <option value="approver">Approver</option>
-            <option value="super_admin">Super Admin</option>
+            <option value="super_admin">Admin</option>
           </select>
           <select
             value={inviteTeam}

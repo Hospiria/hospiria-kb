@@ -6,16 +6,16 @@ import Link from 'next/link'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { TiptapViewer } from '@/components/sops/TiptapViewer'
 import { VersionHistoryPanel } from '@/components/sops/VersionHistoryPanel'
-import { formatDate, formatDateTime } from '@/lib/utils'
+import { formatDateTime } from '@/lib/utils'
 import { Edit, ChevronLeft, CheckCircle, Clock } from 'lucide-react'
+import { getEffectiveSession } from '@/lib/impersonation'
+import { canEditAnySop, canApproveSop, canSeeAllDrafts, canCreateSop } from '@/lib/roles'
 
 export default async function SopViewPage({ params }: { params: { id: string } }) {
+  const session = await getEffectiveSession()
+  if (!session || !session.profile) redirect('/login')
+  const { profile, effectiveUserId } = session
   const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
-  if (!profile) redirect('/login')
 
   const { data: sop } = await supabase
     .from('sops')
@@ -43,9 +43,11 @@ export default async function SopViewPage({ params }: { params: { id: string } }
     .eq('status', 'pending')
     .single()
 
-  const canEdit = profile.role === 'super_admin' || (profile.role === 'author' && sop.author_id === user.id)
-  const canApprove = profile.role === 'super_admin' || profile.role === 'approver'
-  const showVersions = profile.role === 'super_admin' || profile.role === 'approver' || profile.role === 'author'
+  // Can edit: admins/approvers can edit any; team leaders + junior TLs can edit their own
+  const isOwner = sop.author_id === effectiveUserId
+  const canEdit = canEditAnySop(profile.role) || (canCreateSop(profile.role) && isOwner)
+  const canApprove = canApproveSop(profile.role)
+  const showVersions = canSeeAllDrafts(profile.role) || canCreateSop(profile.role)
 
   const teams = (sop as { sop_teams?: { team_id: string; teams?: { name: string } }[] }).sop_teams ?? []
 
@@ -90,16 +92,7 @@ export default async function SopViewPage({ params }: { params: { id: string } }
                     Review
                   </Link>
                 )}
-                {canEdit && sop.status !== 'live' && (
-                  <Link
-                    href={`/sops/${sop.id}/edit`}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-navy-700 text-white text-sm font-medium rounded-lg hover:bg-navy-800 transition-colors"
-                  >
-                    <Edit className="w-4 h-4" />
-                    Edit
-                  </Link>
-                )}
-                {canEdit && sop.status === 'live' && profile.role === 'super_admin' && (
+                {canEdit && (sop.status !== 'live' || canEditAnySop(profile.role)) && (
                   <Link
                     href={`/sops/${sop.id}/edit`}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-navy-700 text-white text-sm font-medium rounded-lg hover:bg-navy-800 transition-colors"

@@ -12,7 +12,7 @@ export default async function NewSopPage() {
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
-  if (!profile || !['author', 'super_admin'].includes(profile.role)) redirect('/sops')
+  if (!profile || !['junior_team_leader', 'team_leader', 'approver', 'super_admin'].includes(profile.role)) redirect('/sops')
 
   const { data: categories } = await supabase.from('categories').select('*, teams(name)').order('display_order')
   const { data: teams } = await supabase.from('teams').select('*').order('name')

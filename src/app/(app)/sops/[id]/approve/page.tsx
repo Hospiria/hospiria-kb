@@ -15,7 +15,7 @@ export default async function ApproveSopPage({ params }: { params: { id: string 
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
-  if (!profile || !['approver', 'super_admin'].includes(profile.role)) redirect('/sops')
+  if (!profile || !['team_leader', 'approver', 'super_admin'].includes(profile.role)) redirect('/sops')
 
   const { data: sop } = await supabase
     .from('sops')

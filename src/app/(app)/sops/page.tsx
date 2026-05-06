@@ -48,9 +48,10 @@ export default async function SopsPage({ searchParams }: { searchParams: SearchP
   // Role-based visibility using effective profile
   if (profile.role === 'agent') {
     query = query.eq('status', 'live')
-  } else if (profile.role === 'author') {
+  } else if (profile.role === 'junior_team_leader') {
     query = query.or(`author_id.eq.${effectiveUserId},status.eq.live`)
   }
+  // team_leader, approver, super_admin see everything (no filter)
 
   if (searchParams.status) query = query.eq('status', searchParams.status)
   if (searchParams.search) query = query.ilike('title', `%${searchParams.search}%`)

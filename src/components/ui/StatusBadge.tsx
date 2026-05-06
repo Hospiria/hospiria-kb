@@ -19,9 +19,10 @@ export function StatusBadge({ status }: { status: SopStatus }) {
 }
 
 const ROLE_CONFIG: Record<string, { label: string; className: string }> = {
-  super_admin: { label: 'Super Admin', className: 'bg-navy-100 text-navy-700 border-navy-200' },
+  super_admin: { label: 'Admin', className: 'bg-navy-100 text-navy-700 border-navy-200' },
   approver: { label: 'Approver', className: 'bg-purple-100 text-purple-700 border-purple-200' },
-  author: { label: 'Author', className: 'bg-teal-100 text-teal-700 border-teal-200' },
+  team_leader: { label: 'Team Leader', className: 'bg-blue-100 text-blue-700 border-blue-200' },
+  junior_team_leader: { label: 'Junior Team Leader', className: 'bg-teal-100 text-teal-700 border-teal-200' },
   agent: { label: 'Agent', className: 'bg-gray-100 text-gray-600 border-gray-200' },
 }
 
