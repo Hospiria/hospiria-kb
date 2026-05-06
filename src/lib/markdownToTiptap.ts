@@ -173,7 +173,7 @@ export function markdownToTiptap(markdown: string): TiptapContent {
         const isHeaderRow = hasSeparator && tableLines.indexOf(tableLines[r]) === 0
         const cells = parseRow(tableLines[r]).map(cellText => ({
           type: isHeaderRow ? 'tableHeader' : 'tableCell',
-          attrs: { colspan: 1, rowspan: 1, colwidth: null },
+          attrs: { colspan: 1, rowspan: 1 },
           content: [{ type: 'paragraph', content: parseInline(cellText) }],
         }))
         if (cells.length > 0) rows.push({ type: 'tableRow', content: cells })

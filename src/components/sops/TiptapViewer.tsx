@@ -9,8 +9,9 @@ import Table from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
 import TableHeader from '@tiptap/extension-table-header'
 import TableCell from '@tiptap/extension-table-cell'
+import TextStyle from '@tiptap/extension-text-style'
+import Color from '@tiptap/extension-color'
 import { TiptapContent } from '@/types'
-import { useEffect } from 'react'
 
 export function TiptapViewer({ content }: { content: TiptapContent }) {
   const editor = useEditor({
@@ -23,17 +24,13 @@ export function TiptapViewer({ content }: { content: TiptapContent }) {
       TableRow,
       TableHeader,
       TableCell,
+      TextStyle,
+      Color,
     ],
     content,
     editable: false,
     immediatelyRender: false,
   })
-
-  useEffect(() => {
-    if (editor && content) {
-      editor.commands.setContent(content)
-    }
-  }, [content, editor])
 
   return (
     <div className="kb-viewer">
