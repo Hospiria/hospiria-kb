@@ -21,8 +21,7 @@ export default async function EditSopPage({ params }: { params: { id: string } }
     .single()
   if (!sop) notFound()
 
-  // Junior TLs and Team Leaders can only edit their own SOPs; approvers/admins can edit any
-  if (!['approver', 'super_admin'].includes(profile.role) && sop.author_id !== user.id) redirect('/sops')
+  // Agents cannot edit at all (caught above); all other roles can edit any SOP
 
   const { data: categories } = await supabase.from('categories').select('*, teams(name)').order('display_order')
   const { data: teams } = await supabase.from('teams').select('*').order('name')
