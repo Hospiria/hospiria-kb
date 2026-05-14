@@ -1,8 +1,32 @@
-import { Resend } from 'resend'
+import nodemailer from 'nodemailer'
 
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
-const FROM = process.env.EMAIL_FROM ?? 'Hospiria Training <noreply@hospiria.com>'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hospiria-kb.vercel.app'
+
+// Office 365 SMTP transporter — requires SMTP_USER and SMTP_PASS in env vars
+function getTransporter() {
+  const user = process.env.SMTP_USER
+  const pass = process.env.SMTP_PASS
+  if (!user || !pass) return null
+  return nodemailer.createTransport({
+    host: 'smtp.office365.com',
+    port: 587,
+    secure: false, // STARTTLS
+    auth: { user, pass },
+    tls: { ciphers: 'SSLv3' },
+  })
+}
+
+const FROM_NAME = 'Hospiria Training'
+
+async function sendEmail({ to, subject, html }: { to: string; subject: string; html: string }) {
+  const transporter = getTransporter()
+  if (!transporter) {
+    console.warn('Email skipped: SMTP_USER / SMTP_PASS not configured')
+    return
+  }
+  const from = `${FROM_NAME} <${process.env.SMTP_USER}>`
+  await transporter.sendMail({ from, to, subject, html })
+}
 
 export async function sendQuizAssignedEmail({
   to,
@@ -15,13 +39,10 @@ export async function sendQuizAssignedEmail({
   sopTitle: string
   dueDate: Date
 }) {
-  if (!resend) return // Skip if RESEND_API_KEY not set
-
   const dueDateStr = dueDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
   const quizzesUrl = `${APP_URL}/quizzes`
 
-  await resend.emails.send({
-    from: FROM,
+  await sendEmail({
     to,
     subject: `📚 New course assigned: "${sopTitle}"`,
     html: `
@@ -95,13 +116,10 @@ export async function sendQuizReminderEmail({
   sopTitle: string
   dueDate: Date
 }) {
-  if (!resend) return
-
   const dueDateStr = dueDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
   const quizzesUrl = `${APP_URL}/quizzes`
 
-  await resend.emails.send({
-    from: FROM,
+  await sendEmail({
     to,
     subject: `⏰ Reminder: Course due in 3 days — "${sopTitle}"`,
     html: `
