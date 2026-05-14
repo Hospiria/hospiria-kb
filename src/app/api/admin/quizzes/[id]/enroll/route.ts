@@ -1,5 +1,6 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+import { sendQuizAssignedEmail } from '@/lib/notifications/email'
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   const supabase = createClient()
@@ -42,14 +43,31 @@ export async function POST(request: Request, { params }: { params: { id: string 
     profiles: profileMap.get(e.user_id) ?? null,
   }))
 
-  // Send notifications to enrolled users
+  // Send in-app notifications
   const notifications = (data ?? []).map((e: { user_id: string; id: string }) => ({
     user_id: e.user_id,
     type: 'quiz_enrolled',
-    message: `You've been enrolled in a quiz: "${quiz.title}". Due in ${dueDays} days.`,
-    link: `/quizzes/${e.id}`,
+    message: `New course assigned: "${quiz.title}". Due in ${dueDays} days — complete your quiz before ${dueDate.toLocaleDateString('en-GB')}.`,
+    link: `/quizzes`,
   }))
   if (notifications.length) await adminClient.from('notifications').insert(notifications)
+
+  // Send emails to newly enrolled users
+  const { data: { users: authUsers } } = await adminClient.auth.admin.listUsers({ perPage: 1000 })
+  const emailMap = new Map(authUsers.map(u => [u.id, { email: u.email ?? '', name: u.user_metadata?.full_name ?? '' }]))
+
+  for (const e of enrichedEnrollments) {
+    const auth = emailMap.get(e.user_id as string)
+    const profile = e.profiles as { full_name: string | null } | null
+    if (auth?.email) {
+      await sendQuizAssignedEmail({
+        to: auth.email,
+        name: profile?.full_name ?? auth.name ?? 'there',
+        sopTitle: quiz.title,
+        dueDate,
+      })
+    }
+  }
 
   return NextResponse.json({ enrolled: data?.length ?? 0, enrollments: enrichedEnrollments })
 }
