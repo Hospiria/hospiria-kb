@@ -28,19 +28,30 @@ export async function POST(request: Request, { params }: { params: { id: string 
     status: 'pending',
   }))
 
-  const { data, error } = await adminClient.from('quiz_enrollments').insert(enrollments).select('id, user_id')
+  const { data, error } = await adminClient.from('quiz_enrollments').insert(enrollments).select('*')
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+  // Fetch profiles for the newly enrolled users
+  const newUserIds = (data ?? []).map((e: { user_id: string }) => e.user_id)
+  const { data: newProfiles } = newUserIds.length > 0
+    ? await adminClient.from('profiles').select('id, full_name, role').in('id', newUserIds)
+    : { data: [] }
+  const profileMap = new Map((newProfiles ?? []).map((p: { id: string; full_name: string | null; role: string }) => [p.id, p]))
+  const enrichedEnrollments = (data ?? []).map((e: Record<string, unknown> & { user_id: string }) => ({
+    ...e,
+    profiles: profileMap.get(e.user_id) ?? null,
+  }))
+
   // Send notifications to enrolled users
-  const notifications = (data ?? []).map((e: { user_id: string }) => ({
+  const notifications = (data ?? []).map((e: { user_id: string; id: string }) => ({
     user_id: e.user_id,
     type: 'quiz_enrolled',
     message: `You've been enrolled in a quiz: "${quiz.title}". Due in ${dueDays} days.`,
-    link: `/quizzes/${(data ?? []).find((d: { user_id: string; id: string }) => d.user_id === e.user_id)?.id}`,
+    link: `/quizzes/${e.id}`,
   }))
   if (notifications.length) await adminClient.from('notifications').insert(notifications)
 
-  return NextResponse.json({ enrolled: data?.length ?? 0 })
+  return NextResponse.json({ enrolled: data?.length ?? 0, enrollments: enrichedEnrollments })
 }
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {

@@ -61,12 +61,17 @@ export function QuizDetailClient({ quiz, initialEnrollments, allProfiles }: Prop
         body: JSON.stringify({ userIds: Array.from(selectedIds), dueDays }),
       })
       if (res.ok) {
+        const d = await res.json()
+        // Immediately add new enrollments to local state — no second fetch needed
+        if (d.enrollments?.length) {
+          setEnrollments(prev => [...prev, ...d.enrollments])
+        }
         setShowEnrollModal(false)
         setSelectedIds(new Set())
         router.refresh()
-        // Reload enrollments
-        const r2 = await fetch(`/api/admin/quizzes/${quiz.id}/enroll`)
-        if (r2.ok) { const d = await r2.json(); setEnrollments(d.enrollments ?? []) }
+      } else {
+        const d = await res.json().catch(() => ({}))
+        alert(d.error ?? 'Enrolment failed — please try again.')
       }
     } finally {
       setEnrollLoading(false)
@@ -84,9 +89,10 @@ export function QuizDetailClient({ quiz, initialEnrollments, allProfiles }: Prop
       })
       if (res.ok) {
         setReenrollTarget(null)
-        router.refresh()
+        // Reload full list from GET so re-enrolled user shows as pending
         const r2 = await fetch(`/api/admin/quizzes/${quiz.id}/enroll`)
         if (r2.ok) { const d = await r2.json(); setEnrollments(d.enrollments ?? []) }
+        router.refresh()
       }
     } finally {
       setReenrollLoading(false)
