@@ -136,8 +136,8 @@ export function SopEditor({
             version_number: newVersion,
             created_by: authorId,
           })
-          // Auto-generate quiz (fire and forget)
-          fetch('/api/admin/quizzes/generate', {
+          // Trigger full publish automation: quiz generation + auto-enroll everyone + email + Teams
+          fetch('/api/internal/publish-automation', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ sopId: id }),

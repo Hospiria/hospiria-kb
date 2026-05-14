@@ -77,8 +77,8 @@ export function ApprovalActions({ sopId, approvalId, authorId, sopTitle }: Props
         }
       }
 
-      // Auto-generate quiz for the newly published SOP (fire and forget)
-      fetch('/api/admin/quizzes/generate', {
+      // Trigger full publish automation: quiz generation + auto-enroll everyone + email + Teams
+      fetch('/api/internal/publish-automation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sopId }),
