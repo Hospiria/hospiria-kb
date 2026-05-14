@@ -124,15 +124,63 @@ Rules:
     quizId = existing?.id ?? null
   }
 
-  // ── 2. Get all users + their emails ──────────────────────────────────
-  const { data: profiles } = await adminClient
-    .from('profiles')
-    .select('id, full_name, role')
+  // ── 2. Get teams this SOP belongs to ─────────────────────────────────
+  const { data: sopTeams } = await adminClient
+    .from('sop_teams')
+    .select('team_id')
+    .eq('sop_id', sopId)
 
-  const { data: { users: authUsers } } = await adminClient.auth.admin.listUsers({ perPage: 1000 })
-  const emailMap = new Map(authUsers.map(u => [u.id, { email: u.email ?? '', name: u.user_metadata?.full_name ?? '' }]))
+  const teamIds = (sopTeams ?? []).map((t: { team_id: string }) => t.team_id)
 
-  const allProfiles = (profiles ?? []) as { id: string; full_name: string | null; role: string }[]
+  // ── 3. Get users who belong to those teams ────────────────────────────
+  // Include: primary_team_id match OR team_access grant
+  const { data: { users: rawAuthUsers } } = await adminClient.auth.admin.listUsers({ perPage: 1000 })
+  const emailMap = new Map(rawAuthUsers.map(u => [u.id, { email: u.email ?? '', name: u.user_metadata?.full_name ?? '' }]))
+
+  let allProfiles: { id: string; full_name: string | null; role: string }[] = []
+
+  if (teamIds.length === 0) {
+    // SOP not assigned to any team — enroll everyone (super_admin only really)
+    const { data: profiles } = await adminClient.from('profiles').select('id, full_name, role')
+    allProfiles = (profiles ?? []) as { id: string; full_name: string | null; role: string }[]
+  } else {
+    // Get users with primary_team_id in the SOP's teams
+    const { data: primaryMembers } = await adminClient
+      .from('profiles')
+      .select('id, full_name, role')
+      .in('primary_team_id', teamIds)
+
+    // Get users with team_access to the SOP's teams
+    const { data: accessMembers } = await adminClient
+      .from('team_access')
+      .select('user_id, profiles(id, full_name, role)')
+      .in('team_id', teamIds)
+
+    const accessProfiles = (accessMembers ?? [])
+      .flatMap((a: { user_id: string; profiles: { id: string; full_name: string | null; role: string }[] }) => a.profiles ?? [])
+      .filter(Boolean) as { id: string; full_name: string | null; role: string }[]
+
+    // Merge and deduplicate
+    const seen = new Set<string>()
+    for (const p of [...(primaryMembers ?? []), ...accessProfiles]) {
+      if (!seen.has(p.id)) {
+        seen.add(p.id)
+        allProfiles.push(p)
+      }
+    }
+
+    // Also always include super_admins (they oversee everything)
+    const { data: admins } = await adminClient
+      .from('profiles')
+      .select('id, full_name, role')
+      .eq('role', 'super_admin')
+    for (const a of (admins ?? [])) {
+      if (!seen.has(a.id)) {
+        seen.add(a.id)
+        allProfiles.push(a)
+      }
+    }
+  }
 
   // ── 3. Enroll everyone in the quiz (7-day deadline) ──────────────────
   const dueDate = new Date()
