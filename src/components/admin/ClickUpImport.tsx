@@ -43,20 +43,31 @@ function flattenLeaves(pages: CUPage[], parentName: string): { id: string; name:
   return result
 }
 
-// ── "Import all →" on a section: direct child SECTIONS each become their own category ──
-// e.g. clicking "Import all →" on "10.4.3 Guest Reservations Team" gives:
-//   - direct leaf children   → category = fallbackCategory ("Guest Reservations Team")
-//   - children of "2. Core SOPs" section → category = "Core SOPs"
-//   - children of "3. Partner Playbooks" section → category = "Partner Playbooks"
+// ── "Import all →" on a section: drill TWO levels to find the right category ──
+// e.g. clicking on "10.4.3 Guest Reservations Team" gives:
+//   - "1. Reservations Team Process Map" (direct leaf) → "Guest Reservations Team"
+//   - all pages under "2. Core SOPs" → "2.1 Enquiry" section → "Enquiry & Lead Conversion"
+//   - all pages under "2. Core SOPs" → "2.2 Booking" section → "Booking Confirmation & Finance"
+//   - all pages under "3. Partner Playbooks" → "3.1 Veeve London" → "Veeve London"
+//   (the numeric prefix is stripped later in handleImport via stripNumericPrefix)
 function flattenLeavesFromSection(page: CUPage, fallbackCategory: string): { id: string; name: string; parentName: string }[] {
   const result: { id: string; name: string; parentName: string }[] = []
-  for (const child of (page.pages ?? [])) {
-    if (!child.pages?.length) {
-      // Direct leaf child — use the fallback (the section itself)
-      result.push({ id: child.id, name: child.name, parentName: fallbackCategory })
+  for (const level1 of (page.pages ?? [])) {
+    if (!level1.pages?.length) {
+      // Leaf directly under the clicked section (e.g. "1. Reservations Team Process Map")
+      result.push({ id: level1.id, name: level1.name, parentName: fallbackCategory })
     } else {
-      // Direct section child — its name becomes the category for ALL its descendants
-      result.push(...flattenLeaves(child.pages, child.name))
+      // Level-1 section (e.g. "2. Core SOPs", "3. Partner Playbooks") — drill into it
+      for (const level2 of (level1.pages ?? [])) {
+        if (!level2.pages?.length) {
+          // Leaf at level 2 — category = level-1 section name (e.g. "Core SOPs")
+          result.push({ id: level2.id, name: level2.name, parentName: level1.name })
+        } else {
+          // Level-2 section (e.g. "2.1 Enquiry", "3.1 Veeve London") — becomes the category
+          // All descendants (no matter how deep) inherit this name
+          result.push(...flattenLeaves(level2.pages, level2.name))
+        }
+      }
     }
   }
   return result
