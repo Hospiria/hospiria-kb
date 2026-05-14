@@ -51,12 +51,24 @@ export async function GET(request: Request, { params }: { params: { id: string }
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
   if (!profile || profile.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const { data: enrollments, error } = await adminClient
+  const { data: rawEnrollments, error } = await adminClient
     .from('quiz_enrollments')
-    .select('*, profiles(id, full_name, role)')
+    .select('*')
     .eq('quiz_id', params.id)
-    .order('enrolled_at', { ascending: false })
+    .order('due_date', { ascending: true })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Fetch profiles separately to avoid FK join dependency
+  const enrolledUserIds = (rawEnrollments ?? []).map((e: { user_id: string }) => e.user_id)
+  const { data: enrolledProfiles } = enrolledUserIds.length > 0
+    ? await adminClient.from('profiles').select('id, full_name, role').in('id', enrolledUserIds)
+    : { data: [] }
+  const profileMap = new Map((enrolledProfiles ?? []).map((p: { id: string; full_name: string | null; role: string }) => [p.id, p]))
+  const enrollments = (rawEnrollments ?? []).map((e: Record<string, unknown> & { user_id: string }) => ({
+    ...e,
+    profiles: profileMap.get(e.user_id) ?? null,
+  }))
+
   return NextResponse.json({ enrollments })
 }

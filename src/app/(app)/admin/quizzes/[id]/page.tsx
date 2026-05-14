@@ -22,12 +22,24 @@ export default async function AdminQuizDetailPage({ params }: { params: { id: st
 
   if (!quiz) notFound()
 
-  // Get all enrollments for this quiz (latest per user by enrolled_at)
-  const { data: enrollments } = await adminClient
+  // Get all enrollments for this quiz
+  const { data: rawEnrollments } = await adminClient
     .from('quiz_enrollments')
-    .select('*, profiles(id, full_name, role)')
+    .select('*')
     .eq('quiz_id', params.id)
-    .order('enrolled_at', { ascending: false })
+    .order('due_date', { ascending: true })
+
+  // Fetch profiles separately to avoid FK join dependency
+  const enrolledUserIds = (rawEnrollments ?? []).map((e: { user_id: string }) => e.user_id)
+  const { data: enrolledProfiles } = enrolledUserIds.length > 0
+    ? await adminClient.from('profiles').select('id, full_name, role').in('id', enrolledUserIds)
+    : { data: [] }
+  const profileMap = new Map((enrolledProfiles ?? []).map((p: { id: string; full_name: string | null; role: string }) => [p.id, p]))
+
+  const enrollments = (rawEnrollments ?? []).map((e: Record<string, unknown> & { user_id: string }) => ({
+    ...e,
+    profiles: profileMap.get(e.user_id) ?? null,
+  }))
 
   // Get all profiles for enrollment selection (exclude super_admin)
   const { data: allProfilesRaw } = await adminClient

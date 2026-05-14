@@ -33,15 +33,16 @@ export function QuizDetailClient({ quiz, initialEnrollments, allProfiles }: Prop
     pending: enrollments.filter(e => e.status === 'pending').length,
   }
 
-  // Latest enrollment per user for display
+  // Latest enrollment per user for display (use due_date as fallback if enrolled_at not set)
+  const enrollTimestamp = (e: QuizEnrollment) => e.enrolled_at ? new Date(e.enrolled_at).getTime() : new Date(e.due_date).getTime()
   const latestPerUser = new Map<string, QuizEnrollment & { profiles?: Profile }>()
   for (const e of enrollments) {
     const ex = latestPerUser.get(e.user_id)
-    if (!ex || new Date(e.enrolled_at) > new Date(ex.enrolled_at)) latestPerUser.set(e.user_id, e)
+    if (!ex || enrollTimestamp(e) > enrollTimestamp(ex)) latestPerUser.set(e.user_id, e)
   }
   const displayEnrollments = Array.from(latestPerUser.values())
     .filter(e => !filterStatus || e.status === filterStatus)
-    .sort((a, b) => new Date(b.enrolled_at).getTime() - new Date(a.enrolled_at).getTime())
+    .sort((a, b) => enrollTimestamp(b) - enrollTimestamp(a))
 
   // Already-enrolled user IDs (latest enrollment)
   const enrolledUserIds = new Set(Array.from(latestPerUser.values()).filter(e => e.status === 'pending').map(e => e.user_id))
