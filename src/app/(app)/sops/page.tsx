@@ -4,11 +4,9 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { getEffectiveSession } from '@/lib/impersonation'
 import Link from 'next/link'
-import { StatusBadge } from '@/components/ui/StatusBadge'
-import { formatDate } from '@/lib/utils'
 import { Plus, Search } from 'lucide-react'
 import { Sop } from '@/types'
-import { getSnippet } from '@/lib/utils'
+import { SopDragList } from '@/components/sops/SopDragList'
 
 interface SearchParams { search?: string; status?: string; team?: string; category?: string }
 
@@ -70,6 +68,7 @@ export default async function SopsPage({ searchParams }: { searchParams: SearchP
     : (allSops ?? [])
 
   const canCreate = profile.role !== 'agent'
+  const canDrag = ['super_admin', 'approver', 'team_leader', 'junior_team_leader'].includes(profile.role)
   const grouped = groupByCategory(sops)
 
   return (
@@ -133,52 +132,24 @@ export default async function SopsPage({ searchParams }: { searchParams: SearchP
           )}
         </div>
       ) : (
-        <div className="space-y-8">
-          {grouped.map(({ category, sops }) => (
-            <div key={category}>
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">{category}</h2>
-              <div className="space-y-2">
-                {sops.map(sop => <SopRow key={sop.id} sop={sop} search={searchParams.search} />)}
-              </div>
-            </div>
-          ))}
-        </div>
+        <SopDragList grouped={grouped} search={searchParams.search} canDrag={canDrag} />
       )}
     </div>
   )
 }
 
-function SopRow({ sop, search }: { sop: Sop & { profiles?: { full_name: string | null } }; search?: string }) {
-  const snippet = search ? getSnippet(sop.content, search) : null
-  return (
-    <Link
-      href={`/sops/${sop.id}`}
-      className="flex items-start justify-between p-4 bg-white border border-gray-200 rounded-xl hover:border-teal-300 hover:shadow-sm transition-all group"
-    >
-      <div className="flex-1 min-w-0">
-        <p className="font-medium text-navy-700 group-hover:text-teal-600 transition-colors truncate">
-          {sop.title}
-        </p>
-        <p className="text-xs text-gray-400 mt-0.5">
-          {sop.profiles?.full_name ?? 'Unknown'} · Updated {formatDate(sop.updated_at)}
-        </p>
-        {snippet && (
-          <p className="text-xs text-gray-500 mt-1.5 line-clamp-2 leading-relaxed">{snippet}</p>
-        )}
-      </div>
-      <div className="ml-4 flex-shrink-0 mt-0.5">
-        <StatusBadge status={sop.status} />
-      </div>
-    </Link>
-  )
-}
 
 function groupByCategory(sops: Sop[]) {
-  const map = new Map<string, Sop[]>()
+  const map = new Map<string, { categoryId: string | null; sops: Sop[] }>()
   for (const sop of sops) {
-    const cat = (sop as Sop & { categories?: { name: string } }).categories?.name ?? 'Uncategorised'
-    if (!map.has(cat)) map.set(cat, [])
-    map.get(cat)!.push(sop)
+    const cat = sop.categories?.name ?? 'Uncategorised'
+    const catId = sop.category_id ?? null
+    if (!map.has(cat)) map.set(cat, { categoryId: catId, sops: [] })
+    map.get(cat)!.sops.push(sop)
   }
-  return Array.from(map.entries()).map(([category, sops]) => ({ category, sops }))
+  return Array.from(map.entries()).map(([category, { categoryId, sops }]) => ({
+    category,
+    categoryId,
+    sops,
+  }))
 }

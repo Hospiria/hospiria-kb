@@ -25,14 +25,38 @@ interface SelectedPage {
 type ImportResult = { name: string; status: 'imported' | 'skipped' | 'error'; error?: string }
 type Step = 'connect' | 'docs' | 'pages' | 'assign' | 'importing' | 'done'
 
-// ── Flatten only LEAF pages (no children), preserving immediate parent name ──
+// Strip leading numeric prefix: "2. Core SOPs" → "Core SOPs", "2.1 Enquiry" → "Enquiry"
+function stripNumericPrefix(name: string): string {
+  return name.replace(/^\d+(?:\.\d+)*\.?\s+/, '').trim()
+}
+
+// ── Flatten leaf pages deep in a subtree, all inheriting the same parentName ──
 function flattenLeaves(pages: CUPage[], parentName: string): { id: string; name: string; parentName: string }[] {
   const result: { id: string; name: string; parentName: string }[] = []
   for (const p of pages) {
     if (!p.pages?.length) {
       result.push({ id: p.id, name: p.name, parentName })
     } else {
-      result.push(...flattenLeaves(p.pages, p.name))
+      result.push(...flattenLeaves(p.pages, parentName))
+    }
+  }
+  return result
+}
+
+// ── "Import all →" on a section: direct child SECTIONS each become their own category ──
+// e.g. clicking "Import all →" on "10.4.3 Guest Reservations Team" gives:
+//   - direct leaf children   → category = fallbackCategory ("Guest Reservations Team")
+//   - children of "2. Core SOPs" section → category = "Core SOPs"
+//   - children of "3. Partner Playbooks" section → category = "Partner Playbooks"
+function flattenLeavesFromSection(page: CUPage, fallbackCategory: string): { id: string; name: string; parentName: string }[] {
+  const result: { id: string; name: string; parentName: string }[] = []
+  for (const child of (page.pages ?? [])) {
+    if (!child.pages?.length) {
+      // Direct leaf child — use the fallback (the section itself)
+      result.push({ id: child.id, name: child.name, parentName: fallbackCategory })
+    } else {
+      // Direct section child — its name becomes the category for ALL its descendants
+      result.push(...flattenLeaves(child.pages, child.name))
     }
   }
   return result
@@ -174,16 +198,23 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
     if (saved && step === 'connect') {
       setAutoConnecting(true)
       fetch('/api/admin/clickup/workspaces', { headers: { 'x-clickup-token': saved } })
-        .then(r => r.json())
-        .then(data => {
+        .then(async r => {
+          const data = await r.json()
+          if (!r.ok) {
+            setError(data.error ?? 'Saved token is no longer valid. Please reconnect.')
+            localStorage.removeItem('cu_token')
+            return
+          }
           if (data.workspaces?.length) {
             setWorkspaces(data.workspaces)
             const wsId = data.workspaces[0].id
             setWorkspaceId(wsId)
-            return loadDocs(wsId)
+            await loadDocs(wsId)
+          } else {
+            setError('No workspaces found. Please re-enter your token.')
           }
         })
-        .catch(() => {})
+        .catch(() => setError('Could not reach ClickUp. Check your internet connection.'))
         .finally(() => setAutoConnecting(false))
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -207,10 +238,20 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
   async function loadDocs(wsId: string) {
     setLoadingDocs(true)
     try {
-      const res = await fetch(`/api/admin/clickup/docs?workspaceId=${wsId}`, { headers: { 'x-clickup-token': token || localStorage.getItem('cu_token') || '' } })
+      const t = token || localStorage.getItem('cu_token') || ''
+      const res = await fetch(`/api/admin/clickup/docs?workspaceId=${wsId}`, { headers: { 'x-clickup-token': t } })
       const data = await res.json()
-      if (res.ok) { setDocs(data.docs ?? []); setStep('docs') }
-    } finally { setLoadingDocs(false) }
+      if (res.ok) {
+        setDocs(data.docs ?? [])
+        setStep('docs')
+      } else {
+        setError(data.error ?? 'Failed to load ClickUp docs. Please try again.')
+      }
+    } catch {
+      setError('Could not load docs. Check your connection.')
+    } finally {
+      setLoadingDocs(false)
+    }
   }
 
   // ── Select Doc ────────────────────────────────────────────────────────
@@ -243,9 +284,12 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
 
   // ── Page selection ────────────────────────────────────────────────────
   function handleTogglePage(page: CUPage, withChildren: boolean, sectionId: string, sectionName: string, parentName: string) {
+    // Always use the top-level section name as the category, regardless of where the user clicked
+    const categoryName = sectionName || parentName
+
     if (withChildren) {
-      // "Import all →" clicked on a section: only get leaf pages with correct parent names
-      const leaves = flattenLeaves([page], page.name)
+      // "Import all →" clicked: direct child sections each become their own category
+      const leaves = flattenLeavesFromSection(page, categoryName)
       const ids = leaves.map(l => l.id)
       const allSelected = ids.every(id => selectedPageIds.has(id))
 
@@ -266,7 +310,7 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
         ]
       })
     } else {
-      // Individual leaf page clicked — don't allow selecting sections
+      // Individual leaf page clicked — category = top-level section name
       if (page.pages?.length) return
       const allSelected = selectedPageIds.has(page.id)
 
@@ -278,33 +322,46 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
       setSelectedPages(prev => {
         if (allSelected) return prev.filter(p => p.id !== page.id)
         if (prev.some(p => p.id === page.id)) return prev
-        return [...prev, { id: page.id, name: page.name, sectionId, sectionName, parentName }]
+        return [...prev, { id: page.id, name: page.name, sectionId, sectionName, parentName: categoryName }]
       })
     }
   }
 
-  // ── Import ────────────────────────────────────────────────────────────
+  // ── Import (batched to avoid timeouts) ───────────────────────────────
+  const BATCH_SIZE = 50
+
   async function handleImport() {
     setStep('importing')
-    try {
-      const pagesPayload = selectedPages.map(p => ({
-        id: p.id,
-        name: p.name,
-        teamId: assignTeamId || null,
-        parentName: p.parentName || null, // used to auto-create category
-        categoryId: null,
-      }))
+    const pagesPayload = selectedPages.map(p => ({
+      id: p.id,
+      name: p.name,
+      teamId: assignTeamId || null,
+      // Strip numeric prefix so "2. Core SOPs" becomes "Core SOPs" as a category name
+      parentName: p.parentName ? stripNumericPrefix(p.parentName) : null,
+      categoryId: null,
+    }))
 
-      const res = await fetch('/api/admin/clickup/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: token || localStorage.getItem('cu_token'), workspaceId, docId: selectedDoc!.id, pages: pagesPayload }),
-      })
-      const data = await res.json()
-      setResults(data.results ?? [])
-    } catch {
-      setResults([{ name: 'Import', status: 'error', error: 'Unexpected error' }])
+    const allResults: ImportResult[] = []
+    const t = token || localStorage.getItem('cu_token') || ''
+
+    for (let i = 0; i < pagesPayload.length; i += BATCH_SIZE) {
+      const batch = pagesPayload.slice(i, i + BATCH_SIZE)
+      try {
+        const res = await fetch('/api/admin/clickup/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: t, workspaceId, docId: selectedDoc!.id, pages: batch }),
+        })
+        const data = await res.json()
+        allResults.push(...(data.results ?? []))
+      } catch {
+        // Mark entire batch as errored
+        batch.forEach(p => allResults.push({ name: p.name, status: 'error', error: 'Request failed' }))
+      }
+      // Update results incrementally so the user sees progress
+      setResults([...allResults])
     }
+
     setStep('done')
   }
 
@@ -359,7 +416,17 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
             />
             <p className="text-xs text-gray-400 mt-1">ClickUp → Profile → Settings → Apps → API Token</p>
           </div>
-          {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+          {error && (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 space-y-1">
+              <p>{error}</p>
+              <button
+                onClick={() => { localStorage.removeItem('cu_token'); setError(''); setToken('') }}
+                className="text-xs text-red-500 underline hover:text-red-700"
+              >
+                Clear saved token and start fresh
+              </button>
+            </div>
+          )}
           <button onClick={handleConnect} disabled={connecting || !token.trim()}
             className="w-full py-2.5 bg-navy-700 text-white text-sm font-medium rounded-lg hover:bg-navy-800 disabled:opacity-50 flex items-center justify-center gap-2">
             {connecting || loadingDocs ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plug className="w-4 h-4" />}
@@ -504,7 +571,12 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
         <div className="bg-white border border-gray-200 rounded-2xl p-10 flex flex-col items-center gap-4">
           <Loader2 className="w-10 h-10 text-teal-600 animate-spin" />
           <p className="font-semibold text-navy-700">Importing {selectedPageIds.size} pages…</p>
-          <p className="text-sm text-gray-400 text-center">Creating categories and saving SOPs. This may take a minute.</p>
+          <p className="text-sm text-gray-400 text-center">
+            Processing in batches of {BATCH_SIZE}. Large imports take a few minutes — please keep this tab open.
+          </p>
+          {results.length > 0 && (
+            <p className="text-sm text-teal-600 font-medium">{results.length} / {selectedPageIds.size} done</p>
+          )}
         </div>
       )}
 
