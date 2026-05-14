@@ -7,6 +7,12 @@ import { formatDate, getSnippet } from '@/lib/utils'
 import { GripVertical } from 'lucide-react'
 import { Sop } from '@/types'
 
+// Strip leading numeric prefix from SOP titles for display
+// "2.1.1 Handling Guest Enquiries" → "Handling Guest Enquiries"
+function cleanTitle(title: string): string {
+  return title.replace(/^\d+(?:\.\d+)*\.?\s+/, '').trim() || title
+}
+
 export interface GroupedCategory {
   category: string
   categoryId: string | null
@@ -193,7 +199,7 @@ function SopRow({
       >
         <div className="flex-1 min-w-0">
           <p className="font-medium text-navy-700 group-hover:text-teal-600 transition-colors truncate">
-            {sop.title}
+            {cleanTitle(sop.title)}
           </p>
           <p className="text-xs text-gray-400 mt-0.5">
             {sop.profiles?.full_name ?? 'Unknown'} · Updated {formatDate(sop.updated_at)}
