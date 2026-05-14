@@ -36,10 +36,10 @@ export default async function AdminQuizDetailPage({ params }: { params: { id: st
     : { data: [] }
   const profileMap = new Map((enrolledProfiles ?? []).map((p: { id: string; full_name: string | null; role: string }) => [p.id, p]))
 
-  const enrollments = (rawEnrollments ?? []).map((e: Record<string, unknown> & { user_id: string }) => ({
+  const enrollments = (rawEnrollments ?? []).map(e => ({
     ...e,
-    profiles: profileMap.get(e.user_id) ?? null,
-  }))
+    profiles: profileMap.get(e.user_id as string) ?? null,
+  })) as unknown as (import('@/types').QuizEnrollment & { profiles?: import('@/types').Profile })[]
 
   // Get all profiles for enrollment selection (exclude super_admin)
   const { data: allProfilesRaw } = await adminClient
