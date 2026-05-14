@@ -26,10 +26,14 @@ export function SopDragList({ grouped: initial, search, canDrag }: Props) {
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dropTargetCatId, setDropTargetCatId] = useState<string | null>(null)
 
-  function handleDragStart(sopId: string, fromCategoryId: string | null) {
+  function handleDragStart(e: React.DragEvent, sopId: string, fromCategoryId: string | null) {
+    // Required for drag to work in all browsers
+    e.dataTransfer.setData('text/plain', sopId)
+    e.dataTransfer.effectAllowed = 'move'
     dragSopId.current = sopId
     dragFromCatId.current = fromCategoryId
-    setDraggingId(sopId)
+    // Small delay so the element renders as dragging after the ghost image is captured
+    setTimeout(() => setDraggingId(sopId), 0)
   }
 
   function handleDragEnd() {
@@ -41,6 +45,7 @@ export function SopDragList({ grouped: initial, search, canDrag }: Props) {
 
   function handleDragOver(e: React.DragEvent, categoryId: string | null) {
     e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
     if (categoryId !== dragFromCatId.current) {
       setDropTargetCatId(categoryId)
     } else {
@@ -48,15 +53,19 @@ export function SopDragList({ grouped: initial, search, canDrag }: Props) {
     }
   }
 
-  function handleDragLeave() {
-    setDropTargetCatId(null)
+  function handleDragLeave(e: React.DragEvent) {
+    // Only clear if leaving the category container entirely (not a child element)
+    const related = e.relatedTarget as Node | null
+    if (!e.currentTarget.contains(related)) {
+      setDropTargetCatId(null)
+    }
   }
 
   async function handleDrop(e: React.DragEvent, toCategoryId: string | null, toCategoryName: string) {
     e.preventDefault()
     setDropTargetCatId(null)
 
-    const sopId = dragSopId.current
+    const sopId = dragSopId.current ?? e.dataTransfer.getData('text/plain')
     const fromCatId = dragFromCatId.current
 
     if (!sopId || toCategoryId === fromCatId) return
@@ -65,7 +74,6 @@ export function SopDragList({ grouped: initial, search, canDrag }: Props) {
     setGrouped(prev => {
       const next = prev.map(g => ({ ...g, sops: [...g.sops] }))
 
-      // Find the SOP
       let movedSop: (Sop & { profiles?: { full_name: string | null } }) | undefined
       for (const g of next) {
         const idx = g.sops.findIndex(s => s.id === sopId)
@@ -76,7 +84,6 @@ export function SopDragList({ grouped: initial, search, canDrag }: Props) {
       }
       if (!movedSop) return prev
 
-      // Add to target category (or create it)
       const target = next.find(g => g.categoryId === toCategoryId)
       if (target) {
         target.sops.push(movedSop)
@@ -84,7 +91,6 @@ export function SopDragList({ grouped: initial, search, canDrag }: Props) {
         next.push({ category: toCategoryName, categoryId: toCategoryId, sops: [movedSop] })
       }
 
-      // Remove empty categories (but keep Uncategorised if it's the only one)
       return next.filter(g => g.sops.length > 0)
     })
 
@@ -108,9 +114,9 @@ export function SopDragList({ grouped: initial, search, canDrag }: Props) {
           onDragOver={e => handleDragOver(e, categoryId)}
           onDragLeave={handleDragLeave}
           onDrop={e => handleDrop(e, categoryId, category)}
-          className={`rounded-xl transition-colors ${
+          className={`rounded-xl transition-all duration-150 ${
             dropTargetCatId === categoryId
-              ? 'ring-2 ring-teal-400 ring-offset-2 bg-teal-50/30'
+              ? 'ring-2 ring-teal-400 ring-offset-2 bg-teal-50/40'
               : ''
           }`}
         >
@@ -126,14 +132,13 @@ export function SopDragList({ grouped: initial, search, canDrag }: Props) {
                 search={search}
                 canDrag={canDrag}
                 isDragging={draggingId === sop.id}
-                onDragStart={() => handleDragStart(sop.id, categoryId)}
+                onDragStart={e => handleDragStart(e, sop.id, categoryId)}
                 onDragEnd={handleDragEnd}
               />
             ))}
-            {/* Drop zone hint when dragging into empty/target category */}
-            {dropTargetCatId === categoryId && (
-              <div className="h-12 border-2 border-dashed border-teal-300 rounded-xl flex items-center justify-center text-xs text-teal-500">
-                Drop here to move to {category}
+            {dropTargetCatId === categoryId && draggingId && (
+              <div className="h-12 border-2 border-dashed border-teal-300 rounded-xl flex items-center justify-center text-xs text-teal-500 font-medium">
+                Drop here → {category}
               </div>
             )}
           </div>
@@ -155,7 +160,7 @@ function SopRow({
   search?: string
   canDrag: boolean
   isDragging: boolean
-  onDragStart: () => void
+  onDragStart: (e: React.DragEvent) => void
   onDragEnd: () => void
 }) {
   const snippet = search ? getSnippet(sop.content, search) : null
@@ -163,23 +168,28 @@ function SopRow({
   return (
     <div
       className={`flex items-stretch bg-white border border-gray-200 rounded-xl hover:border-teal-300 hover:shadow-sm transition-all group ${
-        isDragging ? 'opacity-40 scale-[0.98]' : ''
+        isDragging ? 'opacity-30 scale-[0.98]' : ''
       }`}
       draggable={canDrag}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
     >
-      {/* Drag handle */}
+      {/* Drag handle — visual cue only */}
       {canDrag && (
-        <div className="flex items-center px-2 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-400 flex-shrink-0">
+        <div
+          className="flex items-center px-2.5 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 flex-shrink-0 border-r border-gray-100"
+          onMouseDown={e => e.stopPropagation()} // prevent accidental text selection
+        >
           <GripVertical className="w-4 h-4" />
         </div>
       )}
 
-      {/* Link covers the rest */}
+      {/* Link — explicitly not draggable so it doesn't compete */}
       <Link
         href={`/sops/${sop.id}`}
+        draggable={false}
         className="flex items-start justify-between p-4 flex-1 min-w-0"
+        onClick={e => { if (isDragging) e.preventDefault() }}
       >
         <div className="flex-1 min-w-0">
           <p className="font-medium text-navy-700 group-hover:text-teal-600 transition-colors truncate">
