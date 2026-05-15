@@ -8,11 +8,8 @@ function getTransporter() {
   const pass = process.env.SMTP_PASS
   if (!user || !pass) return null
   return nodemailer.createTransport({
-    host: 'smtp.office365.com',
-    port: 587,
-    secure: false, // STARTTLS
+    service: 'gmail',
     auth: { user, pass },
-    tls: { ciphers: 'SSLv3' },
   })
 }
 
