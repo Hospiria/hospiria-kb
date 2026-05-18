@@ -163,7 +163,7 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
                 <SetupLinkCopy link={setupLink} />
               </>
             ) : (
-              <p className="text-xs text-teal-700">User created. They can use "Forgot password" on the login page to set their password.</p>
+              <p className="text-xs text-teal-700">User created. They can use &quot;Forgot password&quot; on the login page to set their password.</p>
             )}
           </div>
         )}
