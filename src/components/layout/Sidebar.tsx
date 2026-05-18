@@ -10,6 +10,7 @@ import {
   ChevronRight, ChevronDown, BookOpen, Users as TeamIcon, PlugZap, ListChecks, GraduationCap,
 } from 'lucide-react'
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 
 interface Category { id: string; team_id: string; name: string; display_order: number }
 interface Team { id: string; name: string }
@@ -24,9 +25,15 @@ interface SidebarProps {
 export function Sidebar({ profile, teamName, teams, categories }: SidebarProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const router = useRouter()
   const activeTeam = searchParams.get('team')
   const activeCategory = searchParams.get('category')
   const isSuperAdmin = profile.role === 'super_admin'
+
+  function navigate(href: string) {
+    router.push(href)
+    router.refresh()
+  }
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {}
@@ -101,9 +108,9 @@ export function Sidebar({ profile, teamName, teams, categories }: SidebarProps) 
                 isTeamActive ? 'text-white bg-white/10' : 'text-white/55 hover:text-white hover:bg-white/5'
               )}>
                 <TeamIcon className="w-4 h-4 flex-shrink-0" />
-                <Link href={`/sops?team=${team.id}`} className="flex-1 text-left font-medium truncate">
+                <button onClick={() => navigate(`/sops?team=${team.id}`)} className="flex-1 text-left font-medium truncate">
                   {team.name}
-                </Link>
+                </button>
                 <button onClick={() => toggle(team.id)} className="p-0.5 opacity-50 hover:opacity-100 transition-opacity">
                   {isExpanded
                     ? <ChevronDown className="w-3.5 h-3.5" />
@@ -117,11 +124,11 @@ export function Sidebar({ profile, teamName, teams, categories }: SidebarProps) 
                   {teamCats.map(cat => {
                     const active = activeTeam === team.id && activeCategory === cat.id
                     return (
-                      <Link
+                      <button
                         key={cat.id}
-                        href={`/sops?team=${team.id}&category=${cat.id}`}
+                        onClick={() => navigate(`/sops?team=${team.id}&category=${cat.id}`)}
                         className={cn(
-                          'flex items-center px-2.5 py-1.5 rounded-lg text-xs transition-all',
+                          'w-full flex items-center px-2.5 py-1.5 rounded-lg text-xs transition-all',
                           active
                             ? 'bg-teal-500/15 text-teal-300 font-semibold border border-teal-500/20'
                             : 'text-white/35 hover:text-white/80 hover:bg-white/5'
@@ -129,7 +136,7 @@ export function Sidebar({ profile, teamName, teams, categories }: SidebarProps) 
                       >
                         <span className="truncate">{cat.name}</span>
                         {active && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-teal-400 flex-shrink-0" />}
-                      </Link>
+                      </button>
                     )
                   })}
                   {teamCats.length === 0 && (
