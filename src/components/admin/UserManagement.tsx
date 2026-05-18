@@ -71,13 +71,13 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
     }
   }
 
-  async function generateSetupLink(userId: string, email: string) {
+  async function generateSetupLink(userId: string) {
     setGeneratingLinkFor(userId)
     try {
       const res = await fetch('/api/admin/setup-link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ userId }),
       })
       const json = await res.json()
       if (json.success) {
@@ -262,7 +262,7 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
                       <Eye className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => generateSetupLink(u.id, u.id)}
+                      onClick={() => generateSetupLink(u.id)}
                       disabled={generatingLinkFor === u.id}
                       title="Get login setup link"
                       className="p-1.5 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors disabled:opacity-50"
