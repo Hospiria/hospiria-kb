@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { formatDate } from '@/lib/utils'
 import { FileText, Clock, CheckCircle, Users, TrendingUp } from 'lucide-react'
+import { AdminDashboardClient } from '@/components/admin/AdminDashboardClient'
 
 export default async function DashboardPage() {
   const session = await getEffectiveSession()
@@ -36,22 +37,35 @@ export default async function DashboardPage() {
 
 async function SuperAdminDashboard({ userId }: { userId: string }) {
   const supabase = createClient()
-  const [{ count: totalSops }, { count: pending }, { count: totalUsers }, { data: recentSops }] = await Promise.all([
-    supabase.from('sops').select('*', { count: 'exact', head: true }),
+
+  const [
+    { count: liveSops },
+    { count: pendingSops },
+    { count: totalUsers },
+    { data: enrollments },
+    { data: quizzes },
+    { data: teams },
+    { data: profiles },
+  ] = await Promise.all([
+    supabase.from('sops').select('*', { count: 'exact', head: true }).eq('status', 'live'),
     supabase.from('sops').select('*', { count: 'exact', head: true }).eq('status', 'submitted'),
     supabase.from('profiles').select('*', { count: 'exact', head: true }),
-    supabase.from('sops').select('*, categories(name), profiles(full_name)').order('updated_at', { ascending: false }).limit(5),
+    supabase.from('quiz_enrollments').select('id, quiz_id, user_id, status, score, completed_at, due_date'),
+    supabase.from('quizzes').select('id, title').eq('status', 'active'),
+    supabase.from('teams').select('id, name').order('name'),
+    supabase.from('profiles').select('id, full_name, primary_team_id'),
   ])
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-3 gap-4">
-        <StatCard icon={FileText} label="Total SOPs" value={totalSops ?? 0} color="navy" />
-        <StatCard icon={Clock} label="Pending Review" value={pending ?? 0} color="amber" href="/sops?status=submitted" />
-        <StatCard icon={Users} label="Total Users" value={totalUsers ?? 0} color="teal" href="/admin/users" />
-      </div>
-      <RecentSopsTable sops={recentSops ?? []} title="Recent SOPs" />
-    </div>
+    <AdminDashboardClient
+      enrollments={(enrollments ?? []) as { id: string; quiz_id: string; user_id: string; status: 'pending' | 'passed' | 'failed'; score: number | null; completed_at: string | null; due_date: string }[]}
+      quizzes={(quizzes ?? []) as { id: string; title: string }[]}
+      teams={(teams ?? []) as { id: string; name: string }[]}
+      profiles={(profiles ?? []) as { id: string; full_name: string | null; primary_team_id: string | null }[]}
+      liveSops={liveSops ?? 0}
+      pendingSops={pendingSops ?? 0}
+      totalUsers={totalUsers ?? 0}
+    />
   )
 }
 

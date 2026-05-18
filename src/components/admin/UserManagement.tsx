@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Profile, Team } from '@/types'
 import { RoleBadge } from '@/components/ui/StatusBadge'
 import { formatDate } from '@/lib/utils'
-import { UserPlus, Edit2, Check, X, Shield, Eye } from 'lucide-react'
+import { UserPlus, Edit2, Check, X, Shield, Eye, Copy, CheckCheck } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 type UserWithTeams = Profile & {
@@ -15,10 +15,13 @@ type UserWithTeams = Profile & {
 
 export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams: Team[] }) {
   const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteFullName, setInviteFullName] = useState('')
   const [inviteRole, setInviteRole] = useState('agent')
   const [inviteTeam, setInviteTeam] = useState('')
   const [inviting, setInviting] = useState(false)
   const [inviteMsg, setInviteMsg] = useState('')
+  const [inviteSuccess, setInviteSuccess] = useState(false)
+  const [setupLink, setSetupLink] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editRole, setEditRole] = useState('')
   const [editTeam, setEditTeam] = useState('')
@@ -42,15 +45,24 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
     e.preventDefault()
     setInviting(true)
     setInviteMsg('')
+    setInviteSuccess(false)
+    setSetupLink(null)
     try {
       const res = await fetch('/api/admin/invite', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: inviteEmail, role: inviteRole, teamId: inviteTeam }),
+        body: JSON.stringify({ email: inviteEmail, role: inviteRole, teamId: inviteTeam, fullName: inviteFullName }),
       })
       const json = await res.json()
-      setInviteMsg(json.success ? `Invite sent to ${inviteEmail}` : json.error ?? 'Error sending invite')
-      if (json.success) { setInviteEmail(''); router.refresh() }
+      if (json.success) {
+        setInviteSuccess(true)
+        setSetupLink(json.setupLink ?? null)
+        setInviteEmail('')
+        setInviteFullName('')
+        router.refresh()
+      } else {
+        setInviteMsg(json.error ?? 'Error creating user')
+      }
     } finally {
       setInviting(false)
     }
@@ -94,43 +106,67 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
           <UserPlus className="w-4 h-4" />
           Invite User
         </h2>
-        <form onSubmit={handleInvite} className="flex gap-3 flex-wrap">
-          <input
-            type="email"
-            value={inviteEmail}
-            onChange={e => setInviteEmail(e.target.value)}
-            required
-            placeholder="email@hospiria.com"
-            className="flex-1 min-w-[200px] px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-          />
-          <select
-            value={inviteRole}
-            onChange={e => setInviteRole(e.target.value)}
-            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-          >
-            <option value="agent">Agent</option>
-            <option value="junior_team_leader">Junior Team Leader</option>
-            <option value="team_leader">Team Leader</option>
-            <option value="approver">Approver</option>
-            <option value="super_admin">Admin</option>
-          </select>
-          <select
-            value={inviteTeam}
-            onChange={e => setInviteTeam(e.target.value)}
-            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-          >
-            <option value="">No team</option>
-            {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-          <button
-            type="submit"
-            disabled={inviting}
-            className="px-4 py-2 bg-navy-700 text-white text-sm font-medium rounded-lg hover:bg-navy-800 transition-colors disabled:opacity-50"
-          >
-            {inviting ? 'Sending…' : 'Send Invite'}
-          </button>
+        <form onSubmit={handleInvite} className="space-y-3">
+          <div className="flex gap-3 flex-wrap">
+            <input
+              type="text"
+              value={inviteFullName}
+              onChange={e => setInviteFullName(e.target.value)}
+              placeholder="Full name"
+              className="flex-1 min-w-[160px] px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+            />
+            <input
+              type="email"
+              value={inviteEmail}
+              onChange={e => setInviteEmail(e.target.value)}
+              required
+              placeholder="email@hospiria.com"
+              className="flex-1 min-w-[200px] px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+            />
+          </div>
+          <div className="flex gap-3 flex-wrap">
+            <select
+              value={inviteRole}
+              onChange={e => setInviteRole(e.target.value)}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+            >
+              <option value="agent">Agent</option>
+              <option value="junior_team_leader">Junior Team Leader</option>
+              <option value="team_leader">Team Leader</option>
+              <option value="approver">Approver</option>
+              <option value="super_admin">Admin</option>
+            </select>
+            <select
+              value={inviteTeam}
+              onChange={e => setInviteTeam(e.target.value)}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+            >
+              <option value="">No team</option>
+              {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+            <button
+              type="submit"
+              disabled={inviting}
+              className="px-4 py-2 bg-navy-700 text-white text-sm font-medium rounded-lg hover:bg-navy-800 transition-colors disabled:opacity-50"
+            >
+              {inviting ? 'Creating…' : 'Create User'}
+            </button>
+          </div>
         </form>
-        {inviteMsg && <p className="text-sm text-teal-600 mt-2">{inviteMsg}</p>}
+        {inviteMsg && <p className="text-sm text-red-500 mt-2">{inviteMsg}</p>}
+        {inviteSuccess && (
+          <div className="mt-3 p-4 bg-teal-50 border border-teal-200 rounded-xl space-y-2">
+            <p className="text-sm font-semibold text-teal-800">✓ User created successfully!</p>
+            {setupLink ? (
+              <>
+                <p className="text-xs text-teal-700">Share this password-setup link with them via Teams or WhatsApp:</p>
+                <SetupLinkCopy link={setupLink} />
+              </>
+            ) : (
+              <p className="text-xs text-teal-700">User created. They can use "Forgot password" on the login page to set their password.</p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Users table */}
@@ -237,6 +273,29 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
           ))}
         </div>
       </div>
+    </div>
+  )
+}
+
+function SetupLinkCopy({ link }: { link: string }) {
+  const [copied, setCopied] = useState(false)
+  function copy() {
+    navigator.clipboard.writeText(link)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2500)
+  }
+  return (
+    <div className="flex items-start gap-2 mt-1">
+      <code className="flex-1 text-[11px] bg-white border border-teal-200 rounded-lg px-2 py-1.5 text-teal-900 break-all leading-snug">
+        {link}
+      </code>
+      <button
+        onClick={copy}
+        className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-medium rounded-lg transition-colors"
+      >
+        {copied ? <CheckCheck className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+        {copied ? 'Copied!' : 'Copy'}
+      </button>
     </div>
   )
 }
