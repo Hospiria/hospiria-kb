@@ -44,11 +44,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     : { data: [] }
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <Suspense fallback={<div className="w-60 bg-navy-700" />}>
+    <div className="flex min-h-screen bg-slate-50">
+      <Suspense fallback={<div className="w-64 bg-navy-900" />}>
         <Sidebar profile={profile} teamName={profile.teams?.name} teams={teams} categories={categories ?? []} />
       </Suspense>
-      <div className="flex-1 ml-60 flex flex-col min-h-screen">
+      <div className="flex-1 ml-64 flex flex-col min-h-screen">
         <Topbar profile={realProfile} />
         <main className="flex-1 mt-14 p-6">
           {isImpersonating && (

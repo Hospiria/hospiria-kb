@@ -74,40 +74,43 @@ export function Topbar({ profile, title }: TopbarProps) {
 
   const unreadCount = notifications.filter(n => !n.read).length
 
+  const initials = (profile.full_name ?? 'U')
+    .split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()
+
   return (
-    <header className="fixed top-0 left-60 right-0 h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 z-30">
+    <header className="fixed top-0 left-64 right-0 h-14 bg-white/80 backdrop-blur-sm border-b border-gray-200/80 flex items-center justify-between px-6 z-30">
       <div>
         {title && <h1 className="text-base font-semibold text-navy-700">{title}</h1>}
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         {/* Notifications */}
         <div ref={notifsRef} className="relative">
           <button
             onClick={() => setShowNotifs(!showNotifs)}
-            className="relative p-2 text-gray-500 hover:text-navy-700 hover:bg-gray-100 rounded-lg transition-colors"
+            className="relative p-2.5 text-gray-400 hover:text-navy-700 hover:bg-gray-100 rounded-xl transition-all"
           >
-            <Bell className="w-5 h-5" />
+            <Bell className="w-4.5 h-4.5" />
             {unreadCount > 0 && (
-              <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-medium">
+              <span className="absolute top-1.5 right-1.5 w-3.5 h-3.5 bg-teal-500 text-white text-[9px] rounded-full flex items-center justify-center font-bold leading-none">
                 {unreadCount > 9 ? '9+' : unreadCount}
               </span>
             )}
           </button>
 
           {showNotifs && (
-            <div className="absolute right-0 top-10 w-80 bg-white border border-gray-200 rounded-xl shadow-lg z-50">
+            <div className="absolute right-0 top-12 w-80 bg-white border border-gray-200 rounded-2xl shadow-xl shadow-gray-200/60 z-50 overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-                <p className="font-semibold text-sm text-navy-700">Notifications</p>
+                <p className="font-bold text-sm text-navy-700">Notifications</p>
                 {unreadCount > 0 && (
-                  <button onClick={markAllRead} className="text-xs text-teal-600 hover:text-teal-700">
+                  <button onClick={markAllRead} className="text-xs text-teal-600 hover:text-teal-700 font-medium transition-colors">
                     Mark all read
                   </button>
                 )}
               </div>
-              <div className="max-h-80 overflow-y-auto">
+              <div className="max-h-80 overflow-y-auto divide-y divide-gray-50">
                 {notifications.length === 0 ? (
-                  <p className="text-sm text-gray-400 text-center py-6">No notifications</p>
+                  <p className="text-sm text-gray-400 text-center py-8">No notifications</p>
                 ) : (
                   notifications.map(n => (
                     <div
@@ -118,12 +121,12 @@ export function Topbar({ profile, title }: TopbarProps) {
                         setShowNotifs(false)
                       }}
                       className={cn(
-                        'px-4 py-3 cursor-pointer hover:bg-gray-50 border-b border-gray-50 last:border-0',
-                        !n.read && 'bg-teal-50'
+                        'px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors',
+                        !n.read && 'bg-teal-50/60 border-l-2 border-teal-400'
                       )}
                     >
-                      <p className="text-sm text-gray-800">{n.message}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">{formatDateTime(n.created_at)}</p>
+                      <p className="text-sm text-gray-800 leading-snug">{n.message}</p>
+                      <p className="text-xs text-gray-400 mt-1">{formatDateTime(n.created_at)}</p>
                     </div>
                   ))
                 )}
@@ -132,28 +135,29 @@ export function Topbar({ profile, title }: TopbarProps) {
           )}
         </div>
 
+        {/* Divider */}
+        <div className="w-px h-5 bg-gray-200" />
+
         {/* User menu */}
         <div ref={userRef} className="relative">
           <button
             onClick={() => setShowUser(!showUser)}
-            className="flex items-center gap-2 p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            className="flex items-center gap-2.5 px-2 py-1.5 text-gray-600 hover:bg-gray-100 rounded-xl transition-all"
           >
-            <div className="w-7 h-7 rounded-full bg-navy-700 flex items-center justify-center">
-              <span className="text-white text-xs font-semibold">
-                {(profile.full_name ?? 'U')[0].toUpperCase()}
-              </span>
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-teal-400 to-navy-700 flex items-center justify-center shadow-sm">
+              <span className="text-white text-[11px] font-bold tracking-wide">{initials}</span>
             </div>
-            <span className="text-sm font-medium text-gray-700 hidden sm:block">
+            <span className="text-sm font-semibold text-gray-700 hidden sm:block">
               {profile.full_name ?? 'User'}
             </span>
             <ChevronDown className="w-3 h-3 text-gray-400" />
           </button>
 
           {showUser && (
-            <div className="absolute right-0 top-10 w-44 bg-white border border-gray-200 rounded-xl shadow-lg z-50">
+            <div className="absolute right-0 top-11 w-44 bg-white border border-gray-200 rounded-xl shadow-xl shadow-gray-200/60 z-50 overflow-hidden">
               <button
                 onClick={handleSignOut}
-                className="flex items-center gap-2 w-full px-4 py-3 text-sm text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                className="flex items-center gap-2.5 w-full px-4 py-3 text-sm text-red-600 hover:bg-red-50 transition-colors"
               >
                 <LogOut className="w-4 h-4" />
                 Sign out

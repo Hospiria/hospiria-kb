@@ -18,11 +18,11 @@ export default async function DashboardPage() {
   return (
     <div className="max-w-5xl mx-auto">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-navy-700">
+        <h1 className="text-3xl font-black text-navy-700 tracking-tight">
           Welcome back, {profile.full_name?.split(' ')[0] ?? 'there'} 👋
         </h1>
-        <p className="text-gray-500 text-sm mt-1">
-          {profile.teams?.name ? `Team: ${profile.teams.name}` : 'Hospiria Knowledge Base'}
+        <p className="text-gray-400 text-sm mt-1 font-medium">
+          {profile.teams?.name ? `${profile.teams.name} · ` : ''} Hospiria Knowledge Base
         </p>
       </div>
 
@@ -138,17 +138,18 @@ function StatCard({
   href?: string
 }) {
   const colorMap = {
-    navy: 'bg-navy-50 text-navy-700',
-    teal: 'bg-teal-50 text-teal-700',
-    amber: 'bg-amber-50 text-amber-700',
+    navy:  { icon: 'bg-navy-50 text-navy-600',  border: 'border-navy-100',  num: 'text-navy-700' },
+    teal:  { icon: 'bg-teal-50 text-teal-600',  border: 'border-teal-100',  num: 'text-teal-700' },
+    amber: { icon: 'bg-amber-50 text-amber-600', border: 'border-amber-100', num: 'text-amber-700' },
   }
+  const c = colorMap[color]
   const card = (
-    <div className={`bg-white border border-gray-200 rounded-2xl p-5 ${href ? 'hover:shadow-md transition-shadow cursor-pointer' : ''}`}>
-      <div className={`inline-flex p-2 rounded-xl mb-3 ${colorMap[color]}`}>
+    <div className={`bg-white border ${c.border} rounded-2xl p-5 ${href ? 'hover:shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer' : ''}`}>
+      <div className={`inline-flex p-2.5 rounded-xl mb-4 ${c.icon}`}>
         <Icon className="w-5 h-5" />
       </div>
-      <p className="text-2xl font-bold text-navy-700">{value}</p>
-      <p className="text-sm text-gray-500 mt-0.5">{label}</p>
+      <p className={`text-4xl font-black tracking-tight ${c.num}`}>{value}</p>
+      <p className="text-sm text-gray-500 mt-1 font-medium">{label}</p>
     </div>
   )
   if (href) return <Link href={href}>{card}</Link>
@@ -167,22 +168,23 @@ type SopWithJoins = {
 function RecentSopsTable({ sops, title, showApproveLink }: { sops: SopWithJoins[]; title: string; showApproveLink?: boolean }) {
   if (sops.length === 0) return null
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-      <div className="px-5 py-4 border-b border-gray-100">
-        <h2 className="font-semibold text-navy-700">{title}</h2>
+    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+      <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+        <h2 className="font-bold text-navy-700">{title}</h2>
+        <span className="text-xs text-gray-400 font-medium">{sops.length} items</span>
       </div>
       <div className="divide-y divide-gray-50">
         {sops.map(sop => (
           <Link
             key={sop.id}
             href={showApproveLink ? `/sops/${sop.id}/approve` : `/sops/${sop.id}`}
-            className="flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors group"
+            className="flex items-center justify-between px-5 py-3.5 hover:bg-slate-50 transition-colors group"
           >
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-navy-700 group-hover:text-teal-600 transition-colors truncate">
+            <div className="flex-1 min-w-0 mr-4">
+              <p className="text-sm font-semibold text-navy-700 group-hover:text-teal-600 transition-colors truncate">
                 {sop.title}
               </p>
-              <p className="text-xs text-gray-400 mt-0.5">
+              <p className="text-xs text-gray-400 mt-0.5 font-medium">
                 {sop.categories?.name ?? 'Uncategorised'} · {formatDate(sop.updated_at)}
               </p>
             </div>
