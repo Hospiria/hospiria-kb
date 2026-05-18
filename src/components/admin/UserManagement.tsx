@@ -23,6 +23,7 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
   const [inviteSuccess, setInviteSuccess] = useState(false)
   const [setupLink, setSetupLink] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
   const [editRole, setEditRole] = useState('')
   const [editTeam, setEditTeam] = useState('')
   const [saving, setSaving] = useState(false)
@@ -70,13 +71,14 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
 
   async function startEdit(user: UserWithTeams) {
     setEditingId(user.id)
+    setEditName(user.full_name ?? '')
     setEditRole(user.role)
     setEditTeam(user.primary_team_id ?? '')
   }
 
   async function saveEdit(userId: string) {
     setSaving(true)
-    await supabase.from('profiles').update({ role: editRole, primary_team_id: editTeam || null }).eq('id', userId)
+    await supabase.from('profiles').update({ full_name: editName || null, role: editRole, primary_team_id: editTeam || null }).eq('id', userId)
     setEditingId(null)
     setSaving(false)
     router.refresh()
@@ -193,7 +195,14 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
                 </div>
 
                 {editingId === u.id ? (
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap justify-end">
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={e => setEditName(e.target.value)}
+                      placeholder="Full name"
+                      className="text-sm border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-teal-500 w-36"
+                    />
                     <select
                       value={editRole}
                       onChange={e => setEditRole(e.target.value)}
