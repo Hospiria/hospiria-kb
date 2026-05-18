@@ -22,7 +22,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   let teams: { id: string; name: string }[] = []
   const effectiveUserId = session.effectiveUserId
 
-  if (profile.role === 'agent') {
+  const restrictedRoles = ['agent', 'team_leader', 'junior_team_leader']
+  if (restrictedRoles.includes(profile.role)) {
+    // These roles only see their own primary team + any explicitly granted cross-team access
     if (profile.primary_team_id) {
       const { data } = await supabase.from('teams').select('id, name').eq('id', profile.primary_team_id)
       teams = data ?? []
@@ -34,6 +36,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     })
     teams = [...teams, ...extraTeams]
   } else {
+    // approver and super_admin see all teams
     const { data } = await supabase.from('teams').select('id, name').order('name')
     teams = data ?? []
   }

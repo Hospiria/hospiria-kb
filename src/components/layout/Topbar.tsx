@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { Profile, Notification } from '@/types'
-import { Bell, LogOut, ChevronDown } from 'lucide-react'
+import { Bell, LogOut, ChevronDown, KeyRound } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -154,7 +154,14 @@ export function Topbar({ profile, title }: TopbarProps) {
           </button>
 
           {showUser && (
-            <div className="absolute right-0 top-11 w-44 bg-white border border-gray-200 rounded-xl shadow-xl shadow-gray-200/60 z-50 overflow-hidden">
+            <div className="absolute right-0 top-11 w-48 bg-white border border-gray-200 rounded-xl shadow-xl shadow-gray-200/60 z-50 overflow-hidden">
+              <a
+                href="/auth/set-password"
+                className="flex items-center gap-2.5 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 transition-colors border-b border-gray-100"
+              >
+                <KeyRound className="w-4 h-4 text-gray-400" />
+                Change password
+              </a>
               <button
                 onClick={handleSignOut}
                 className="flex items-center gap-2.5 w-full px-4 py-3 text-sm text-red-600 hover:bg-red-50 transition-colors"
