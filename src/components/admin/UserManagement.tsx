@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Profile, Team } from '@/types'
 import { RoleBadge } from '@/components/ui/StatusBadge'
 import { formatDate } from '@/lib/utils'
-import { UserPlus, Edit2, Check, X, Shield, Eye, Copy, CheckCheck } from 'lucide-react'
+import { UserPlus, Edit2, Check, X, Shield, Eye, Copy, CheckCheck, Link2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 type UserWithTeams = Profile & {
@@ -28,6 +28,8 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
   const [editTeam, setEditTeam] = useState('')
   const [saving, setSaving] = useState(false)
   const [impersonating, setImpersonating] = useState<string | null>(null)
+  const [generatingLinkFor, setGeneratingLinkFor] = useState<string | null>(null)
+  const [userLinks, setUserLinks] = useState<Record<string, string>>({})
   const router = useRouter()
   const supabase = createClient()
 
@@ -66,6 +68,23 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
       }
     } finally {
       setInviting(false)
+    }
+  }
+
+  async function generateSetupLink(userId: string, email: string) {
+    setGeneratingLinkFor(userId)
+    try {
+      const res = await fetch('/api/admin/setup-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        setUserLinks(prev => ({ ...prev, [userId]: json.link }))
+      }
+    } finally {
+      setGeneratingLinkFor(null)
     }
   }
 
@@ -242,12 +261,27 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
                     >
                       <Eye className="w-4 h-4" />
                     </button>
+                    <button
+                      onClick={() => generateSetupLink(u.id, u.id)}
+                      disabled={generatingLinkFor === u.id}
+                      title="Get login setup link"
+                      className="p-1.5 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      <Link2 className="w-4 h-4" />
+                    </button>
                     <button onClick={() => startEdit(u)} className="p-1.5 text-gray-400 hover:text-navy-700 hover:bg-gray-100 rounded-lg transition-colors">
                       <Edit2 className="w-4 h-4" />
                     </button>
                   </div>
                 )}
               </div>
+
+              {/* Setup link if generated */}
+              {userLinks[u.id] && (
+                <div className="mt-2 ml-10">
+                  <SetupLinkCopy link={userLinks[u.id]} onClose={() => setUserLinks(prev => { const n = {...prev}; delete n[u.id]; return n })} />
+                </div>
+              )}
 
               {/* Cross-team access */}
               <div className="mt-3 ml-10">
@@ -286,7 +320,7 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
   )
 }
 
-function SetupLinkCopy({ link }: { link: string }) {
+function SetupLinkCopy({ link, onClose }: { link: string; onClose?: () => void }) {
   const [copied, setCopied] = useState(false)
   function copy() {
     navigator.clipboard.writeText(link)
@@ -294,17 +328,24 @@ function SetupLinkCopy({ link }: { link: string }) {
     setTimeout(() => setCopied(false), 2500)
   }
   return (
-    <div className="flex items-start gap-2 mt-1">
-      <code className="flex-1 text-[11px] bg-white border border-teal-200 rounded-lg px-2 py-1.5 text-teal-900 break-all leading-snug">
-        {link}
-      </code>
-      <button
-        onClick={copy}
-        className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-medium rounded-lg transition-colors"
-      >
-        {copied ? <CheckCheck className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-        {copied ? 'Copied!' : 'Copy'}
-      </button>
+    <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-teal-800">Share this login link with the user:</p>
+        {onClose && <button onClick={onClose} className="text-teal-400 hover:text-teal-600"><X className="w-3.5 h-3.5" /></button>}
+      </div>
+      <div className="flex items-start gap-2">
+        <code className="flex-1 text-[11px] bg-white border border-teal-200 rounded-lg px-2 py-1.5 text-teal-900 break-all leading-snug">
+          {link}
+        </code>
+        <button
+          onClick={copy}
+          className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-medium rounded-lg transition-colors"
+        >
+          {copied ? <CheckCheck className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+          {copied ? 'Copied!' : 'Copy'}
+        </button>
+      </div>
+      <p className="text-[11px] text-teal-600">Link expires after first use. They click it, set a password, and they&apos;re in.</p>
     </div>
   )
 }
