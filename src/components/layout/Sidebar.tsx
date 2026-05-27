@@ -59,7 +59,7 @@ export function Sidebar({ profile, teamName, teams, categories }: SidebarProps) 
           </div>
           <div>
             <p className="text-white font-bold text-sm tracking-tight leading-tight">Hospiria KB</p>
-            <p className="text-white/35 text-xs leading-tight">Knowledge Base</p>
+            <p className="text-white/55 text-xs leading-tight">Knowledge Base</p>
           </div>
         </div>
       </div>
@@ -76,7 +76,7 @@ export function Sidebar({ profile, teamName, teams, categories }: SidebarProps) 
           </div>
         </div>
         {teamName && (
-          <p className="text-white/30 text-xs mt-2 truncate font-medium">{teamName}</p>
+          <p className="text-white/60 text-xs mt-2 truncate font-medium">{teamName}</p>
         )}
       </div>
 
@@ -92,7 +92,7 @@ export function Sidebar({ profile, teamName, teams, categories }: SidebarProps) 
         {/* Library */}
         {teams.length > 0 && (
           <div className="pt-5 pb-2 px-2">
-            <p className="text-white/25 text-[10px] font-bold uppercase tracking-[0.15em]">Library</p>
+            <p className="text-white/55 text-[10px] font-bold uppercase tracking-[0.15em]">Library</p>
           </div>
         )}
 
@@ -105,7 +105,7 @@ export function Sidebar({ profile, teamName, teams, categories }: SidebarProps) 
             <div key={team.id}>
               <div className={cn(
                 'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all',
-                isTeamActive ? 'text-white bg-white/10' : 'text-white/55 hover:text-white hover:bg-white/5'
+                isTeamActive ? 'text-white bg-white/10' : 'text-white/80 hover:text-white hover:bg-white/5'
               )}>
                 <TeamIcon className="w-4 h-4 flex-shrink-0" />
                 <button onClick={() => navigate(`/sops?team=${team.id}`)} className="flex-1 text-left font-medium truncate">
@@ -131,7 +131,7 @@ export function Sidebar({ profile, teamName, teams, categories }: SidebarProps) 
                           'w-full flex items-center px-2.5 py-1.5 rounded-lg text-xs transition-all',
                           active
                             ? 'bg-teal-500/15 text-teal-300 font-semibold border border-teal-500/20'
-                            : 'text-white/70 hover:text-white hover:bg-white/5'
+                            : 'text-white/75 hover:text-white hover:bg-white/5'
                         )}
                       >
                         <span className="truncate">{cat.name}</span>
@@ -140,7 +140,7 @@ export function Sidebar({ profile, teamName, teams, categories }: SidebarProps) 
                     )
                   })}
                   {teamCats.length === 0 && (
-                    <p className="text-xs text-white/20 px-2 py-1">No categories</p>
+                    <p className="text-xs text-white/50 px-2 py-1">No categories</p>
                   )}
                 </div>
               )}
@@ -152,7 +152,7 @@ export function Sidebar({ profile, teamName, teams, categories }: SidebarProps) 
         {isSuperAdmin && (
           <>
             <div className="pt-5 pb-2 px-2">
-              <p className="text-white/25 text-[10px] font-bold uppercase tracking-[0.15em]">Admin</p>
+              <p className="text-white/55 text-[10px] font-bold uppercase tracking-[0.15em]">Admin</p>
             </div>
             {[
               { label: 'Users', href: '/admin/users', icon: Users },
@@ -170,7 +170,7 @@ export function Sidebar({ profile, teamName, teams, categories }: SidebarProps) 
       </nav>
 
       <div className="px-4 py-3 border-t border-white/5">
-        <p className="text-white/15 text-xs text-center font-medium">Hospiria © 2025</p>
+        <p className="text-white/45 text-xs text-center font-medium">Hospiria © 2025</p>
       </div>
     </aside>
   )
@@ -191,7 +191,7 @@ function NavItem({
         'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all group',
         active
           ? 'bg-teal-500/15 text-teal-300 font-semibold border border-teal-500/20'
-          : 'text-white/55 hover:text-white hover:bg-white/5'
+          : 'text-white/80 hover:text-white hover:bg-white/5'
       )}
     >
       <Icon className={cn('w-4 h-4 flex-shrink-0 transition-colors',
