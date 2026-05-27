@@ -131,7 +131,7 @@ export function Sidebar({ profile, teamName, teams, categories }: SidebarProps) 
                           'w-full flex items-center px-2.5 py-1.5 rounded-lg text-xs transition-all',
                           active
                             ? 'bg-teal-500/15 text-teal-300 font-semibold border border-teal-500/20'
-                            : 'text-white/35 hover:text-white/80 hover:bg-white/5'
+                            : 'text-white/70 hover:text-white hover:bg-white/5'
                         )}
                       >
                         <span className="truncate">{cat.name}</span>
