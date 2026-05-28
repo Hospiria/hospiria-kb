@@ -14,8 +14,19 @@ export default async function NewSopPage() {
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
   if (!profile || !['junior_team_leader', 'team_leader', 'approver', 'super_admin'].includes(profile.role)) redirect('/sops')
 
-  const { data: categories } = await supabase.from('categories').select('*, teams(name)').order('display_order')
-  const { data: teams } = await supabase.from('teams').select('*').order('name')
+  const [
+    { data: categories },
+    { data: teams },
+    { data: companies },
+    { data: platforms },
+    { data: profiles },
+  ] = await Promise.all([
+    supabase.from('categories').select('*, teams(name)').order('display_order'),
+    supabase.from('teams').select('*').order('name'),
+    supabase.from('companies').select('id, name, is_active').order('name'),
+    supabase.from('platforms').select('id, name, is_active').order('name'),
+    supabase.from('profiles').select('id, full_name, role').order('full_name'),
+  ])
 
   return (
     <div>
@@ -27,6 +38,9 @@ export default async function NewSopPage() {
       <SopEditor
         categories={categories ?? []}
         teams={teams ?? []}
+        companies={(companies ?? []) as { id: string; name: string; description: null; is_active: boolean; created_at: string; updated_at: string }[]}
+        platforms={(platforms ?? []) as { id: string; name: string; description: null; is_active: boolean; created_at: string; updated_at: string }[]}
+        profiles={profiles ?? []}
         authorId={user.id}
         userRole={profile.role}
       />
