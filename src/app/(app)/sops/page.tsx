@@ -193,7 +193,12 @@ export default async function SopsPage({ searchParams }: { searchParams: SearchP
           )}
         </div>
       ) : (
-        <SopDragList grouped={grouped} search={searchParams.search} canDrag={canDrag} />
+        <SopDragList
+          key={[searchParams.team, searchParams.company, searchParams.platform, searchParams.category, searchParams.status, searchParams.search].join('|')}
+          grouped={grouped}
+          search={searchParams.search}
+          canDrag={canDrag}
+        />
       )}
     </div>
   )
