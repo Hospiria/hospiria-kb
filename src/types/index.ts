@@ -37,6 +37,24 @@ export interface Category {
   teams?: Team
 }
 
+export interface Company {
+  id: string
+  name: string
+  description: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface Platform {
+  id: string
+  name: string
+  description: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
 export interface Sop {
   id: string
   title: string

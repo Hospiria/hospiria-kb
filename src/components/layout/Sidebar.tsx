@@ -8,6 +8,7 @@ import { RoleBadge } from '@/components/ui/StatusBadge'
 import {
   LayoutDashboard, Users, Building2, Upload,
   ChevronRight, ChevronDown, BookOpen, Users as TeamIcon, PlugZap, ListChecks, GraduationCap,
+  Briefcase, Layers,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -157,6 +158,8 @@ export function Sidebar({ profile, teamName, teams, categories }: SidebarProps) 
             {[
               { label: 'Users', href: '/admin/users', icon: Users },
               { label: 'Teams & Categories', href: '/admin/teams', icon: Building2 },
+              { label: 'Companies', href: '/admin/companies', icon: Briefcase },
+              { label: 'Platforms', href: '/admin/platforms', icon: Layers },
               { label: 'Import SOPs', href: '/admin/import', icon: Upload },
               { label: 'Import from ClickUp', href: '/admin/clickup', icon: PlugZap },
               { label: 'Manage SOPs', href: '/admin/sops', icon: ListChecks },
