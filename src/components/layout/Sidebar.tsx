@@ -7,44 +7,27 @@ import { Profile } from '@/types'
 import { RoleBadge } from '@/components/ui/StatusBadge'
 import {
   LayoutDashboard, Users, Building2, Upload,
-  ChevronRight, ChevronDown, BookOpen, Users as TeamIcon, PlugZap, ListChecks, GraduationCap,
+  BookOpen, Users as TeamIcon, PlugZap, ListChecks, GraduationCap,
   Briefcase, Layers,
 } from 'lucide-react'
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 
-interface Category { id: string; team_id: string; name: string; display_order: number }
 interface Team { id: string; name: string }
 
 interface SidebarProps {
   profile: Profile
   teamName?: string
   teams: Team[]
-  categories: Category[]
+  companies: { id: string; name: string }[]
+  platforms: { id: string; name: string }[]
 }
 
-export function Sidebar({ profile, teamName, teams, categories }: SidebarProps) {
+export function Sidebar({ profile, teamName, teams, companies, platforms }: SidebarProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const router = useRouter()
   const activeTeam = searchParams.get('team')
-  const activeCategory = searchParams.get('category')
+  const activeCompany = searchParams.get('company')
+  const activePlatform = searchParams.get('platform')
   const isSuperAdmin = profile.role === 'super_admin'
-
-  function navigate(href: string) {
-    router.push(href)
-    router.refresh()
-  }
-
-  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
-    const init: Record<string, boolean> = {}
-    teams.forEach(t => { init[t.id] = true })
-    return init
-  })
-
-  function toggle(teamId: string) {
-    setExpanded(prev => ({ ...prev, [teamId]: !prev[teamId] }))
-  }
 
   const initials = (profile.full_name ?? 'U')
     .split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()
@@ -90,64 +73,58 @@ export function Sidebar({ profile, teamName, teams, categories }: SidebarProps) 
         <NavItem href="/quizzes" icon={GraduationCap} label="My Courses"
           active={pathname === '/quizzes' || pathname.startsWith('/quizzes/')} />
 
-        {/* Library */}
+        {/* Library — Teams */}
         {teams.length > 0 && (
           <div className="pt-5 pb-2 px-2">
             <p className="text-white/55 text-[10px] font-bold uppercase tracking-[0.15em]">Library</p>
           </div>
         )}
 
-        {teams.map(team => {
-          const teamCats = categories.filter(c => c.team_id === team.id)
-          const isExpanded = expanded[team.id] ?? true
-          const isTeamActive = activeTeam === team.id
+        {teams.map(team => (
+          <NavItem
+            key={team.id}
+            href={`/sops?team=${team.id}`}
+            icon={TeamIcon}
+            label={team.name}
+            active={activeTeam === team.id}
+          />
+        ))}
 
-          return (
-            <div key={team.id}>
-              <div className={cn(
-                'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all',
-                isTeamActive ? 'text-white bg-white/10' : 'text-white/80 hover:text-white hover:bg-white/5'
-              )}>
-                <TeamIcon className="w-4 h-4 flex-shrink-0" />
-                <button onClick={() => navigate(`/sops?team=${team.id}`)} className="flex-1 text-left font-medium truncate">
-                  {team.name}
-                </button>
-                <button onClick={() => toggle(team.id)} className="p-0.5 opacity-50 hover:opacity-100 transition-opacity">
-                  {isExpanded
-                    ? <ChevronDown className="w-3.5 h-3.5" />
-                    : <ChevronRight className="w-3.5 h-3.5" />
-                  }
-                </button>
-              </div>
-
-              {isExpanded && (
-                <div className="ml-4 mt-0.5 space-y-0.5 border-l border-white/8 pl-3">
-                  {teamCats.map(cat => {
-                    const active = activeTeam === team.id && activeCategory === cat.id
-                    return (
-                      <button
-                        key={cat.id}
-                        onClick={() => navigate(`/sops?team=${team.id}&category=${cat.id}`)}
-                        className={cn(
-                          'w-full flex items-center px-2.5 py-1.5 rounded-lg text-xs transition-all',
-                          active
-                            ? 'bg-teal-500/15 text-teal-300 font-semibold border border-teal-500/20'
-                            : 'text-white/75 hover:text-white hover:bg-white/5'
-                        )}
-                      >
-                        <span className="truncate">{cat.name}</span>
-                        {active && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-teal-400 flex-shrink-0" />}
-                      </button>
-                    )
-                  })}
-                  {teamCats.length === 0 && (
-                    <p className="text-xs text-white/50 px-2 py-1">No categories</p>
-                  )}
-                </div>
-              )}
+        {/* Companies */}
+        {companies.length > 0 && (
+          <>
+            <div className="pt-4 pb-2 px-2">
+              <p className="text-white/55 text-[10px] font-bold uppercase tracking-[0.15em]">Companies</p>
             </div>
-          )
-        })}
+            {companies.map(company => (
+              <NavItem
+                key={company.id}
+                href={`/sops?company=${company.id}`}
+                icon={Briefcase}
+                label={company.name}
+                active={activeCompany === company.id}
+              />
+            ))}
+          </>
+        )}
+
+        {/* Platforms */}
+        {platforms.length > 0 && (
+          <>
+            <div className="pt-4 pb-2 px-2">
+              <p className="text-white/55 text-[10px] font-bold uppercase tracking-[0.15em]">Platforms</p>
+            </div>
+            {platforms.map(platform => (
+              <NavItem
+                key={platform.id}
+                href={`/sops?platform=${platform.id}`}
+                icon={Layers}
+                label={platform.name}
+                active={activePlatform === platform.id}
+              />
+            ))}
+          </>
+        )}
 
         {/* Admin */}
         {isSuperAdmin && (

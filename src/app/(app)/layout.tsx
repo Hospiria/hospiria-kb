@@ -41,15 +41,22 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     teams = data ?? []
   }
 
-  const teamIds = teams.map(t => t.id)
-  const { data: categories } = teamIds.length > 0
-    ? await supabase.from('categories').select('id, team_id, name, display_order').in('team_id', teamIds).order('display_order')
-    : { data: [] }
+  // Companies and platforms are global tags — everyone sees all active ones
+  const [{ data: companies }, { data: platforms }] = await Promise.all([
+    supabase.from('companies').select('id, name').eq('is_active', true).order('name'),
+    supabase.from('platforms').select('id, name').eq('is_active', true).order('name'),
+  ])
 
   return (
     <div className="flex min-h-screen bg-slate-50">
       <Suspense fallback={<div className="w-64 bg-navy-900" />}>
-        <Sidebar profile={profile} teamName={profile.teams?.name} teams={teams} categories={categories ?? []} />
+        <Sidebar
+          profile={profile}
+          teamName={profile.teams?.name}
+          teams={teams}
+          companies={companies ?? []}
+          platforms={platforms ?? []}
+        />
       </Suspense>
       <div className="flex-1 ml-64 flex flex-col min-h-screen">
         <Topbar profile={realProfile} />

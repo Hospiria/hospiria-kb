@@ -8,7 +8,14 @@ import { Plus, Search } from 'lucide-react'
 import { Sop } from '@/types'
 import { SopDragList } from '@/components/sops/SopDragList'
 
-interface SearchParams { search?: string; status?: string; team?: string; category?: string }
+interface SearchParams {
+  search?: string
+  status?: string
+  team?: string
+  category?: string
+  company?: string
+  platform?: string
+}
 
 export default async function SopsPage({ searchParams }: { searchParams: SearchParams }) {
   const session = await getEffectiveSession()
@@ -19,15 +26,50 @@ export default async function SopsPage({ searchParams }: { searchParams: SearchP
 
   const teamId = searchParams.team ?? null
   const categoryId = searchParams.category ?? null
-  let teamName = 'All SOPs'
-  let categoryName = ''
+  const companyId = searchParams.company ?? null
+  const platformId = searchParams.platform ?? null
+
+  // Resolve display names
+  let pageTitle = 'All SOPs'
+  let pageSubtitle = ''
+
   if (teamId) {
     const { data: team } = await supabase.from('teams').select('name').eq('id', teamId).single()
-    if (team) teamName = team.name
+    if (team) pageTitle = team.name
   }
   if (categoryId) {
     const { data: cat } = await supabase.from('categories').select('name').eq('id', categoryId).single()
-    if (cat) categoryName = cat.name
+    if (cat) {
+      pageSubtitle = pageTitle
+      pageTitle = cat.name
+    }
+  }
+  if (companyId) {
+    const { data: company } = await supabase.from('companies').select('name').eq('id', companyId).single()
+    if (company) {
+      pageTitle = company.name
+      pageSubtitle = 'Company'
+    }
+  }
+  if (platformId) {
+    const { data: platform } = await supabase.from('platforms').select('name').eq('id', platformId).single()
+    if (platform) {
+      pageTitle = platform.name
+      pageSubtitle = 'Platform'
+    }
+  }
+
+  // Pre-filter: resolve SOP ids for junction-based filters
+  let companyFilterIds: string[] | null = null
+  if (companyId) {
+    const { data } = await supabase.from('sop_companies').select('sop_id').eq('company_id', companyId)
+    companyFilterIds = (data ?? []).map(r => r.sop_id)
+  }
+
+  let platformFilterIds: string[] | null = null
+  if (platformId) {
+    const { data } = await supabase.from('sop_platforms').select('sop_id').eq('platform_id', platformId)
+    platformFilterIds = (data ?? []).map(r => r.sop_id)
   }
 
   let query = supabase
@@ -43,6 +85,16 @@ export default async function SopsPage({ searchParams }: { searchParams: SearchP
   if (teamId) {
     query = (query as typeof query).eq('sop_teams.team_id', teamId)
   }
+  if (companyFilterIds !== null) {
+    query = companyFilterIds.length > 0
+      ? query.in('id', companyFilterIds)
+      : query.in('id', ['00000000-0000-0000-0000-000000000000']) // no results sentinel
+  }
+  if (platformFilterIds !== null) {
+    query = platformFilterIds.length > 0
+      ? query.in('id', platformFilterIds)
+      : query.in('id', ['00000000-0000-0000-0000-000000000000']) // no results sentinel
+  }
 
   // Role-based visibility using effective profile
   if (profile.role === 'agent') {
@@ -54,7 +106,6 @@ export default async function SopsPage({ searchParams }: { searchParams: SearchP
 
   if (searchParams.status) query = query.eq('status', searchParams.status)
   if (searchParams.search) {
-    // Full-text search across title + content via generated search_vector column
     query = query.textSearch('search_vector', searchParams.search, { type: 'websearch', config: 'english' })
   }
   if (categoryId) query = query.eq('category_id', categoryId)
@@ -71,12 +122,20 @@ export default async function SopsPage({ searchParams }: { searchParams: SearchP
   const canDrag = ['super_admin', 'approver', 'team_leader', 'junior_team_leader'].includes(profile.role)
   const grouped = groupByCategory(sops)
 
+  // Build base query string for filter links (preserves active team/company/platform)
+  const filterParts = [
+    teamId ? `team=${teamId}` : '',
+    companyId ? `company=${companyId}` : '',
+    platformId ? `platform=${platformId}` : '',
+  ].filter(Boolean)
+  const filterBase = filterParts.length > 0 ? filterParts.join('&') + '&' : ''
+
   return (
     <div className="max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-navy-700">{categoryName || teamName}</h1>
-          {categoryName && <p className="text-gray-400 text-xs mt-0.5">{teamName}</p>}
+          <h1 className="text-2xl font-bold text-navy-700">{pageTitle}</h1>
+          {pageSubtitle && <p className="text-gray-400 text-xs mt-0.5">{pageSubtitle}</p>}
           <p className="text-gray-500 text-sm mt-0.5">{sops.length} SOP{sops.length !== 1 ? 's' : ''}</p>
         </div>
         {canCreate && (
@@ -100,6 +159,8 @@ export default async function SopsPage({ searchParams }: { searchParams: SearchP
             className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"
           />
           {teamId && <input type="hidden" name="team" value={teamId} />}
+          {companyId && <input type="hidden" name="company" value={companyId} />}
+          {platformId && <input type="hidden" name="platform" value={platformId} />}
           {searchParams.status && <input type="hidden" name="status" value={searchParams.status} />}
         </form>
 
@@ -108,7 +169,7 @@ export default async function SopsPage({ searchParams }: { searchParams: SearchP
             {['', 'draft', 'submitted', 'changes_requested', 'live', 'archived'].map(s => (
               <Link
                 key={s}
-                href={`/sops?${teamId ? `team=${teamId}&` : ''}${s ? `status=${s}` : ''}`}
+                href={`/sops?${filterBase}${s ? `status=${s}` : ''}`}
                 className={`px-3 py-2 text-xs font-medium rounded-lg border transition-colors ${
                   (searchParams.status ?? '') === s
                     ? 'bg-navy-700 text-white border-navy-700'
