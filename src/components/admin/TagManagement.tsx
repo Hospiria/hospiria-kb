@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Edit2, Check, X, EyeOff, Eye, Trash2 } from 'lucide-react'
+import { Plus, Edit2, Check, X, EyeOff, Eye, Trash2, Upload } from 'lucide-react'
 
 /**
  * Generic admin manager for simple "tag" entities (companies, platforms).
@@ -44,6 +44,41 @@ export function TagManagement({ tableName, singular, plural, description, initia
   const [editDescription, setEditDescription] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // CSV import
+  const [csvPreview, setCsvPreview] = useState<string[]>([])
+  const [csvImporting, setCsvImporting] = useState(false)
+
+  function handleCsvFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = evt => {
+      const text = evt.target?.result as string
+      const names = text
+        .split(/\r?\n/)
+        .map(line => line.split(',')[0].trim().replace(/^["']|["']$/g, ''))
+        .filter(name => name && name.toLowerCase() !== 'name')
+      setCsvPreview(names)
+      setError(null)
+    }
+    reader.readAsText(file)
+    e.target.value = '' // allow re-upload of same file
+  }
+
+  async function importFromCsv() {
+    if (csvPreview.length === 0) return
+    setCsvImporting(true)
+    setError(null)
+    const rows = csvPreview.map(name => ({ name, is_active: true }))
+    const { error: err } = await supabase
+      .from(tableName)
+      .upsert(rows, { onConflict: 'name', ignoreDuplicates: true })
+    setCsvImporting(false)
+    if (err) { setError(err.message); return }
+    setCsvPreview([])
+    router.refresh()
+  }
 
   const active = initialTags.filter(t => t.is_active)
   const inactive = initialTags.filter(t => !t.is_active)
@@ -128,19 +163,62 @@ export function TagManagement({ tableName, singular, plural, description, initia
           <p className="text-gray-500 text-sm mt-0.5">{description}</p>
         </div>
         {!adding && (
-          <button
-            onClick={() => { setAdding(true); setError(null) }}
-            className="flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg bg-teal-500 text-white hover:bg-teal-600 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Add {singular.toLowerCase()}
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <label className="flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 cursor-pointer transition-colors">
+              <Upload className="w-4 h-4" />
+              Import CSV
+              <input type="file" accept=".csv,.txt" className="hidden" onChange={handleCsvFile} />
+            </label>
+            <button
+              onClick={() => { setAdding(true); setError(null) }}
+              className="flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg bg-teal-500 text-white hover:bg-teal-600 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Add {singular.toLowerCase()}
+            </button>
+          </div>
         )}
       </div>
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2 rounded-lg">
           {error}
+        </div>
+      )}
+
+      {csvPreview.length > 0 && (
+        <div className="bg-white border border-teal-200 rounded-2xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-navy-700">
+                Ready to import {csvPreview.length} {csvPreview.length === 1 ? singular.toLowerCase() : plural.toLowerCase()}
+              </p>
+              <p className="text-xs text-gray-500 mt-0.5">Duplicates will be skipped automatically.</p>
+            </div>
+            <button onClick={() => setCsvPreview([])} className="p-1.5 text-gray-400 hover:text-gray-600">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <ul className="max-h-48 overflow-y-auto divide-y divide-gray-100 border border-gray-100 rounded-lg text-sm">
+            {csvPreview.map((name, i) => (
+              <li key={i} className="px-3 py-1.5 text-gray-700">{name}</li>
+            ))}
+          </ul>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setCsvPreview([])}
+              className="text-sm px-3 py-1.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={importFromCsv}
+              disabled={csvImporting}
+              className="text-sm font-medium px-3 py-1.5 bg-teal-500 text-white rounded-lg hover:bg-teal-600 disabled:opacity-40"
+            >
+              {csvImporting ? 'Importing…' : `Import ${csvPreview.length} ${csvPreview.length === 1 ? singular.toLowerCase() : plural.toLowerCase()}`}
+            </button>
+          </div>
         </div>
       )}
 
