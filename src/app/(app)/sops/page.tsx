@@ -4,9 +4,10 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { getEffectiveSession } from '@/lib/impersonation'
 import Link from 'next/link'
-import { Plus, Search } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { Sop } from '@/types'
 import { SopDragList } from '@/components/sops/SopDragList'
+import { SopFilters } from '@/components/sops/SopFilters'
 
 interface SearchParams {
   search?: string
@@ -58,6 +59,13 @@ export default async function SopsPage({ searchParams }: { searchParams: SearchP
       pageSubtitle = 'Platform'
     }
   }
+
+  // Fetch full lists for filter dropdowns
+  const [{ data: filterTeams }, { data: filterCompanies }, { data: filterPlatforms }] = await Promise.all([
+    supabase.from('teams').select('id, name').order('name'),
+    supabase.from('companies').select('id, name').eq('is_active', true).order('name'),
+    supabase.from('platforms').select('id, name').eq('is_active', true).order('name'),
+  ])
 
   // Pre-filter: resolve SOP ids for junction-based filters
   let companyFilterIds: string[] | null = null
@@ -122,14 +130,6 @@ export default async function SopsPage({ searchParams }: { searchParams: SearchP
   const canDrag = ['super_admin', 'approver', 'team_leader', 'junior_team_leader'].includes(profile.role)
   const grouped = groupByCategory(sops)
 
-  // Build base query string for filter links (preserves active team/company/platform)
-  const filterParts = [
-    teamId ? `team=${teamId}` : '',
-    companyId ? `company=${companyId}` : '',
-    platformId ? `platform=${platformId}` : '',
-  ].filter(Boolean)
-  const filterBase = filterParts.length > 0 ? filterParts.join('&') + '&' : ''
-
   return (
     <div className="max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
@@ -149,39 +149,12 @@ export default async function SopsPage({ searchParams }: { searchParams: SearchP
         )}
       </div>
 
-      <div className="flex gap-3 mb-6 flex-wrap">
-        <form className="flex-1 min-w-[200px] relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            name="search"
-            defaultValue={searchParams.search}
-            placeholder="Search SOPs…"
-            className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"
-          />
-          {teamId && <input type="hidden" name="team" value={teamId} />}
-          {companyId && <input type="hidden" name="company" value={companyId} />}
-          {platformId && <input type="hidden" name="platform" value={platformId} />}
-          {searchParams.status && <input type="hidden" name="status" value={searchParams.status} />}
-        </form>
-
-        {profile.role !== 'agent' && (
-          <div className="flex gap-2 flex-wrap">
-            {['', 'draft', 'submitted', 'changes_requested', 'live', 'archived'].map(s => (
-              <Link
-                key={s}
-                href={`/sops?${filterBase}${s ? `status=${s}` : ''}`}
-                className={`px-3 py-2 text-xs font-medium rounded-lg border transition-colors ${
-                  (searchParams.status ?? '') === s
-                    ? 'bg-navy-700 text-white border-navy-700'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                {s ? s.charAt(0).toUpperCase() + s.slice(1).replace('_', ' ') : 'All'}
-              </Link>
-            ))}
-          </div>
-        )}
-      </div>
+      <SopFilters
+        teams={filterTeams ?? []}
+        companies={filterCompanies ?? []}
+        platforms={filterPlatforms ?? []}
+        canFilterByStatus={profile.role !== 'agent'}
+      />
 
       {grouped.length === 0 ? (
         <div className="text-center py-16 text-gray-400">
