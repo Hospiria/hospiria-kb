@@ -8,7 +8,7 @@ import { RoleBadge } from '@/components/ui/StatusBadge'
 import {
   LayoutDashboard, Users, Building2, Upload,
   BookOpen, Users as TeamIcon, PlugZap, ListChecks, GraduationCap,
-  Briefcase, Layers, ChevronDown, ChevronRight,
+  Briefcase, Layers, ChevronDown, Search,
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -30,10 +30,29 @@ export function Sidebar({ profile, teamName, teams, companies, platforms }: Side
   const activePlatform = searchParams.get('platform')
   const isSuperAdmin = profile.role === 'super_admin'
 
-  // Companies + Platforms collapsed by default (can be long lists)
-  // Auto-expand the section if something in it is currently active
+  // Auto-expand if something in the section is currently active
   const [companiesOpen, setCompaniesOpen] = useState(() => !!activeCompany)
   const [platformsOpen, setPlatformsOpen] = useState(() => !!activePlatform)
+  const [companiesSearch, setCompaniesSearch] = useState('')
+  const [platformsSearch, setPlatformsSearch] = useState('')
+
+  const filteredCompanies = companiesSearch.trim()
+    ? companies.filter(c => c.name.toLowerCase().includes(companiesSearch.toLowerCase()))
+    : companies
+
+  const filteredPlatforms = platformsSearch.trim()
+    ? platforms.filter(p => p.name.toLowerCase().includes(platformsSearch.toLowerCase()))
+    : platforms
+
+  function toggleCompanies() {
+    if (companiesOpen) setCompaniesSearch('')
+    setCompaniesOpen(o => !o)
+  }
+
+  function togglePlatforms() {
+    if (platformsOpen) setPlatformsSearch('')
+    setPlatformsOpen(o => !o)
+  }
 
   const initials = (profile.full_name ?? 'U')
     .split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()
@@ -79,7 +98,7 @@ export function Sidebar({ profile, teamName, teams, companies, platforms }: Side
         <NavItem href="/quizzes" icon={GraduationCap} label="My Courses"
           active={pathname === '/quizzes' || pathname.startsWith('/quizzes/')} />
 
-        {/* Library — Teams (always visible, small list) */}
+        {/* Library — Teams */}
         {teams.length > 0 && (
           <div className="pt-5 pb-2 px-2">
             <p className="text-white/55 text-[10px] font-bold uppercase tracking-[0.15em]">Library</p>
@@ -95,68 +114,118 @@ export function Sidebar({ profile, teamName, teams, companies, platforms }: Side
           />
         ))}
 
-        {/* Companies — collapsible */}
+        {/* Companies — collapsible with search */}
         {companies.length > 0 && (
-          <>
-            <div className="pt-4 pb-0.5 px-1">
-              <button
-                onClick={() => setCompaniesOpen(o => !o)}
-                className="w-full flex items-center justify-between px-1 py-1 rounded-md hover:bg-white/5 transition-colors group"
-              >
-                <span className="text-white/55 text-[10px] font-bold uppercase tracking-[0.15em] group-hover:text-white/75 transition-colors">
-                  Companies
-                  {!companiesOpen && activeCompany && (
-                    <span className="ml-1.5 normal-case text-teal-400 font-normal">●</span>
-                  )}
+          <div className="pt-4">
+            <button
+              onClick={toggleCompanies}
+              className={cn(
+                'w-full flex items-center justify-between px-2.5 py-2 rounded-lg border transition-all group',
+                companiesOpen
+                  ? 'bg-white/8 border-white/12 text-white'
+                  : 'border-white/8 bg-white/4 hover:bg-white/8 hover:border-white/12 text-white/70 hover:text-white'
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <Briefcase className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="text-xs font-semibold uppercase tracking-[0.12em]">Companies</span>
+                <span className="text-[10px] text-white/35 font-normal normal-case">
+                  {activeCompany && !companiesOpen ? '●' : companies.length}
                 </span>
-                {companiesOpen
-                  ? <ChevronDown className="w-3 h-3 text-white/40" />
-                  : <ChevronRight className="w-3 h-3 text-white/40" />
-                }
-              </button>
-            </div>
-            {companiesOpen && companies.map(company => (
-              <NavItem
-                key={company.id}
-                href={`/sops?company=${company.id}`}
-                icon={Briefcase}
-                label={company.name}
-                active={activeCompany === company.id}
-              />
-            ))}
-          </>
+              </div>
+              <ChevronDown className={cn(
+                'w-3.5 h-3.5 text-white/50 transition-transform duration-200',
+                companiesOpen ? 'rotate-0' : '-rotate-90'
+              )} />
+            </button>
+
+            {companiesOpen && (
+              <div className="mt-1 space-y-0.5">
+                {/* Search */}
+                <div className="px-1 pb-1">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-white/30" />
+                    <input
+                      type="text"
+                      value={companiesSearch}
+                      onChange={e => setCompaniesSearch(e.target.value)}
+                      placeholder="Search companies…"
+                      className="w-full bg-white/5 border border-white/10 rounded-lg pl-7 pr-3 py-1.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-teal-500/40 focus:bg-white/8 transition-colors"
+                    />
+                  </div>
+                </div>
+                {filteredCompanies.map(company => (
+                  <NavItem
+                    key={company.id}
+                    href={`/sops?company=${company.id}`}
+                    icon={Briefcase}
+                    label={company.name}
+                    active={activeCompany === company.id}
+                  />
+                ))}
+                {filteredCompanies.length === 0 && (
+                  <p className="text-xs text-white/30 px-3 py-1.5 italic">No matches</p>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
-        {/* Platforms — collapsible */}
+        {/* Platforms — collapsible with search */}
         {platforms.length > 0 && (
-          <>
-            <div className="pt-4 pb-0.5 px-1">
-              <button
-                onClick={() => setPlatformsOpen(o => !o)}
-                className="w-full flex items-center justify-between px-1 py-1 rounded-md hover:bg-white/5 transition-colors group"
-              >
-                <span className="text-white/55 text-[10px] font-bold uppercase tracking-[0.15em] group-hover:text-white/75 transition-colors">
-                  Platforms
-                  {!platformsOpen && activePlatform && (
-                    <span className="ml-1.5 normal-case text-teal-400 font-normal">●</span>
-                  )}
+          <div className="pt-2">
+            <button
+              onClick={togglePlatforms}
+              className={cn(
+                'w-full flex items-center justify-between px-2.5 py-2 rounded-lg border transition-all group',
+                platformsOpen
+                  ? 'bg-white/8 border-white/12 text-white'
+                  : 'border-white/8 bg-white/4 hover:bg-white/8 hover:border-white/12 text-white/70 hover:text-white'
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <Layers className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="text-xs font-semibold uppercase tracking-[0.12em]">Platforms</span>
+                <span className="text-[10px] text-white/35 font-normal normal-case">
+                  {activePlatform && !platformsOpen ? '●' : platforms.length}
                 </span>
-                {platformsOpen
-                  ? <ChevronDown className="w-3 h-3 text-white/40" />
-                  : <ChevronRight className="w-3 h-3 text-white/40" />
-                }
-              </button>
-            </div>
-            {platformsOpen && platforms.map(platform => (
-              <NavItem
-                key={platform.id}
-                href={`/sops?platform=${platform.id}`}
-                icon={Layers}
-                label={platform.name}
-                active={activePlatform === platform.id}
-              />
-            ))}
-          </>
+              </div>
+              <ChevronDown className={cn(
+                'w-3.5 h-3.5 text-white/50 transition-transform duration-200',
+                platformsOpen ? 'rotate-0' : '-rotate-90'
+              )} />
+            </button>
+
+            {platformsOpen && (
+              <div className="mt-1 space-y-0.5">
+                {/* Search */}
+                <div className="px-1 pb-1">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-white/30" />
+                    <input
+                      type="text"
+                      value={platformsSearch}
+                      onChange={e => setPlatformsSearch(e.target.value)}
+                      placeholder="Search platforms…"
+                      className="w-full bg-white/5 border border-white/10 rounded-lg pl-7 pr-3 py-1.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-teal-500/40 focus:bg-white/8 transition-colors"
+                    />
+                  </div>
+                </div>
+                {filteredPlatforms.map(platform => (
+                  <NavItem
+                    key={platform.id}
+                    href={`/sops?platform=${platform.id}`}
+                    icon={Layers}
+                    label={platform.name}
+                    active={activePlatform === platform.id}
+                  />
+                ))}
+                {filteredPlatforms.length === 0 && (
+                  <p className="text-xs text-white/30 px-3 py-1.5 italic">No matches</p>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
         {/* Admin */}
