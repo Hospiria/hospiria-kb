@@ -114,7 +114,22 @@ export default async function SopsPage({ searchParams }: { searchParams: SearchP
 
   if (searchParams.status) query = query.eq('status', searchParams.status)
   if (searchParams.search) {
-    query = query.textSearch('search_vector', searchParams.search, { type: 'websearch', config: 'english' })
+    const s = searchParams.search.trim()
+    // Run title ilike + content FTS in parallel, then filter to the union of both result sets.
+    // This means "hand" finds "Handling Guest Enquiries" (title substring) AND SOPs
+    // with "hand" anywhere in their content (FTS), rather than relying solely on
+    // tsvector stemming which doesn't do partial-word matching.
+    const [{ data: titleHits }, { data: ftsHits }] = await Promise.all([
+      supabase.from('sops').select('id').ilike('title', `%${s}%`),
+      supabase.from('sops').select('id').textSearch('search_vector', s, { type: 'websearch', config: 'english' }),
+    ])
+    const matchIds = [...new Set([
+      ...(titleHits ?? []).map((r: { id: string }) => r.id),
+      ...(ftsHits ?? []).map((r: { id: string }) => r.id),
+    ])]
+    query = matchIds.length > 0
+      ? query.in('id', matchIds)
+      : query.in('id', ['00000000-0000-0000-0000-000000000000']) // no results sentinel
   }
   if (categoryId) query = query.eq('category_id', categoryId)
 
