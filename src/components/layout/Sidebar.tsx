@@ -8,8 +8,9 @@ import { RoleBadge } from '@/components/ui/StatusBadge'
 import {
   LayoutDashboard, Users, Building2, Upload,
   BookOpen, Users as TeamIcon, PlugZap, ListChecks, GraduationCap,
-  Briefcase, Layers,
+  Briefcase, Layers, ChevronDown, ChevronRight,
 } from 'lucide-react'
+import { useState } from 'react'
 
 interface Team { id: string; name: string }
 
@@ -28,6 +29,11 @@ export function Sidebar({ profile, teamName, teams, companies, platforms }: Side
   const activeCompany = searchParams.get('company')
   const activePlatform = searchParams.get('platform')
   const isSuperAdmin = profile.role === 'super_admin'
+
+  // Companies + Platforms collapsed by default (can be long lists)
+  // Auto-expand the section if something in it is currently active
+  const [companiesOpen, setCompaniesOpen] = useState(() => !!activeCompany)
+  const [platformsOpen, setPlatformsOpen] = useState(() => !!activePlatform)
 
   const initials = (profile.full_name ?? 'U')
     .split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()
@@ -73,13 +79,12 @@ export function Sidebar({ profile, teamName, teams, companies, platforms }: Side
         <NavItem href="/quizzes" icon={GraduationCap} label="My Courses"
           active={pathname === '/quizzes' || pathname.startsWith('/quizzes/')} />
 
-        {/* Library — Teams */}
+        {/* Library — Teams (always visible, small list) */}
         {teams.length > 0 && (
           <div className="pt-5 pb-2 px-2">
             <p className="text-white/55 text-[10px] font-bold uppercase tracking-[0.15em]">Library</p>
           </div>
         )}
-
         {teams.map(team => (
           <NavItem
             key={team.id}
@@ -90,13 +95,27 @@ export function Sidebar({ profile, teamName, teams, companies, platforms }: Side
           />
         ))}
 
-        {/* Companies */}
+        {/* Companies — collapsible */}
         {companies.length > 0 && (
           <>
-            <div className="pt-4 pb-2 px-2">
-              <p className="text-white/55 text-[10px] font-bold uppercase tracking-[0.15em]">Companies</p>
+            <div className="pt-4 pb-0.5 px-1">
+              <button
+                onClick={() => setCompaniesOpen(o => !o)}
+                className="w-full flex items-center justify-between px-1 py-1 rounded-md hover:bg-white/5 transition-colors group"
+              >
+                <span className="text-white/55 text-[10px] font-bold uppercase tracking-[0.15em] group-hover:text-white/75 transition-colors">
+                  Companies
+                  {!companiesOpen && activeCompany && (
+                    <span className="ml-1.5 normal-case text-teal-400 font-normal">●</span>
+                  )}
+                </span>
+                {companiesOpen
+                  ? <ChevronDown className="w-3 h-3 text-white/40" />
+                  : <ChevronRight className="w-3 h-3 text-white/40" />
+                }
+              </button>
             </div>
-            {companies.map(company => (
+            {companiesOpen && companies.map(company => (
               <NavItem
                 key={company.id}
                 href={`/sops?company=${company.id}`}
@@ -108,13 +127,27 @@ export function Sidebar({ profile, teamName, teams, companies, platforms }: Side
           </>
         )}
 
-        {/* Platforms */}
+        {/* Platforms — collapsible */}
         {platforms.length > 0 && (
           <>
-            <div className="pt-4 pb-2 px-2">
-              <p className="text-white/55 text-[10px] font-bold uppercase tracking-[0.15em]">Platforms</p>
+            <div className="pt-4 pb-0.5 px-1">
+              <button
+                onClick={() => setPlatformsOpen(o => !o)}
+                className="w-full flex items-center justify-between px-1 py-1 rounded-md hover:bg-white/5 transition-colors group"
+              >
+                <span className="text-white/55 text-[10px] font-bold uppercase tracking-[0.15em] group-hover:text-white/75 transition-colors">
+                  Platforms
+                  {!platformsOpen && activePlatform && (
+                    <span className="ml-1.5 normal-case text-teal-400 font-normal">●</span>
+                  )}
+                </span>
+                {platformsOpen
+                  ? <ChevronDown className="w-3 h-3 text-white/40" />
+                  : <ChevronRight className="w-3 h-3 text-white/40" />
+                }
+              </button>
             </div>
-            {platforms.map(platform => (
+            {platformsOpen && platforms.map(platform => (
               <NavItem
                 key={platform.id}
                 href={`/sops?platform=${platform.id}`}
