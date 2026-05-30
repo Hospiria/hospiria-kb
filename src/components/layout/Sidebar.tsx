@@ -8,7 +8,7 @@ import { RoleBadge } from '@/components/ui/StatusBadge'
 import {
   LayoutDashboard, Users, Building2, Upload,
   BookOpen, Users as TeamIcon, PlugZap, ListChecks, GraduationCap,
-  Briefcase, Layers, ChevronDown, Search,
+  Briefcase, Layers, ChevronDown, Search, Library,
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -98,12 +98,18 @@ export function Sidebar({ profile, teamName, teams, companies, platforms }: Side
         <NavItem href="/quizzes" icon={GraduationCap} label="My Courses"
           active={pathname === '/quizzes' || pathname.startsWith('/quizzes/')} />
 
-        {/* Library — Teams */}
-        {teams.length > 0 && (
-          <div className="pt-5 pb-2 px-2">
-            <p className="text-white/55 text-[10px] font-bold uppercase tracking-[0.15em]">Library</p>
-          </div>
-        )}
+        {/* Library */}
+        <div className="pt-5 pb-2 px-2">
+          <p className="text-white/55 text-[10px] font-bold uppercase tracking-[0.15em]">Library</p>
+        </div>
+
+        <NavItem
+          href="/sops"
+          icon={Library}
+          label="All SOPs"
+          active={pathname === '/sops' && !activeTeam && !activeCompany && !activePlatform}
+        />
+
         {teams.map(team => (
           <NavItem
             key={team.id}
