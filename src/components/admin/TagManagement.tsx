@@ -48,6 +48,7 @@ export function TagManagement({ tableName, singular, plural, description, initia
   // CSV import
   const [csvPreview, setCsvPreview] = useState<string[]>([])
   const [csvImporting, setCsvImporting] = useState(false)
+  const [csvResult, setCsvResult] = useState<{ added: number; skipped: number } | null>(null)
 
   function handleCsvFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -70,13 +71,25 @@ export function TagManagement({ tableName, singular, plural, description, initia
     if (csvPreview.length === 0) return
     setCsvImporting(true)
     setError(null)
-    const rows = csvPreview.map(name => ({ name, is_active: true }))
-    const { error: err } = await supabase
-      .from(tableName)
-      .upsert(rows, { onConflict: 'name', ignoreDuplicates: true })
+    setCsvResult(null)
+
+    // Fetch existing names so we can skip duplicates without needing a DB unique constraint
+    const { data: existing } = await supabase.from(tableName).select('name')
+    const existingNames = new Set((existing ?? []).map((r: { name: string }) => r.name.toLowerCase().trim()))
+
+    const toInsert = csvPreview.filter(n => !existingNames.has(n.toLowerCase().trim()))
+    const skipped = csvPreview.length - toInsert.length
+
+    if (toInsert.length > 0) {
+      const { error: err } = await supabase
+        .from(tableName)
+        .insert(toInsert.map(name => ({ name, is_active: true })))
+      if (err) { setCsvImporting(false); setError(err.message); return }
+    }
+
     setCsvImporting(false)
-    if (err) { setError(err.message); return }
     setCsvPreview([])
+    setCsvResult({ added: toInsert.length, skipped })
     router.refresh()
   }
 
@@ -183,6 +196,18 @@ export function TagManagement({ tableName, singular, plural, description, initia
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2 rounded-lg">
           {error}
+        </div>
+      )}
+
+      {csvResult && (
+        <div className="bg-teal-50 border border-teal-200 text-teal-800 text-sm px-3 py-2 rounded-lg flex items-center justify-between">
+          <span>
+            ✓ Imported {csvResult.added} {csvResult.added === 1 ? singular.toLowerCase() : plural.toLowerCase()}
+            {csvResult.skipped > 0 && ` — ${csvResult.skipped} duplicate${csvResult.skipped > 1 ? 's' : ''} skipped`}
+          </span>
+          <button onClick={() => setCsvResult(null)} className="ml-3 text-teal-600 hover:text-teal-800">
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 
