@@ -12,6 +12,87 @@ interface SopSource {
   title: string
 }
 
+// ── Lightweight markdown rendering (bold / italic / code) ──────────────────
+// The assistant replies in markdown; we render the common inline + list syntax
+// without pulling in a markdown dependency.
+function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = []
+  const regex = /(\*\*([^*]+)\*\*|\*([^*\n]+)\*|`([^`]+)`)/g
+  let lastIndex = 0
+  let m: RegExpExecArray | null
+  let i = 0
+  while ((m = regex.exec(text)) !== null) {
+    if (m.index > lastIndex) nodes.push(text.slice(lastIndex, m.index))
+    if (m[2] !== undefined) nodes.push(<strong key={`${keyPrefix}-b${i}`}>{m[2]}</strong>)
+    else if (m[3] !== undefined) nodes.push(<em key={`${keyPrefix}-i${i}`}>{m[3]}</em>)
+    else if (m[4] !== undefined)
+      nodes.push(
+        <code key={`${keyPrefix}-c${i}`} className="bg-gray-100 rounded px-1 py-0.5 text-[12px] font-mono">
+          {m[4]}
+        </code>
+      )
+    lastIndex = regex.lastIndex
+    i++
+  }
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex))
+  return nodes
+}
+
+function FormattedMessage({ text }: { text: string }) {
+  const lines = text.split('\n')
+  const blocks: React.ReactNode[] = []
+  let i = 0
+  let key = 0
+  const bulletRe = /^[-*•]\s+(.*)/
+  const numberedRe = /^\d+\.\s+(.*)/
+
+  while (i < lines.length) {
+    const trimmed = lines[i].trim()
+    if (trimmed === '') { i++; continue }
+
+    if (bulletRe.test(trimmed)) {
+      const items: string[] = []
+      while (i < lines.length && bulletRe.test(lines[i].trim())) {
+        items.push(bulletRe.exec(lines[i].trim())![1]); i++
+      }
+      const k = key++
+      blocks.push(
+        <ul key={k} className="list-disc pl-4 space-y-0.5 my-1.5">
+          {items.map((it, idx) => <li key={idx}>{renderInline(it, `ul${k}-${idx}`)}</li>)}
+        </ul>
+      )
+      continue
+    }
+
+    if (numberedRe.test(trimmed)) {
+      const items: string[] = []
+      while (i < lines.length && numberedRe.test(lines[i].trim())) {
+        items.push(numberedRe.exec(lines[i].trim())![1]); i++
+      }
+      const k = key++
+      blocks.push(
+        <ol key={k} className="list-decimal pl-4 space-y-0.5 my-1.5">
+          {items.map((it, idx) => <li key={idx}>{renderInline(it, `ol${k}-${idx}`)}</li>)}
+        </ol>
+      )
+      continue
+    }
+
+    const para: string[] = []
+    while (i < lines.length) {
+      const t = lines[i].trim()
+      if (t === '' || bulletRe.test(t) || numberedRe.test(t)) break
+      para.push(t); i++
+    }
+    const k = key++
+    blocks.push(
+      <p key={k} className="my-1.5 first:mt-0 last:mb-0">{renderInline(para.join(' '), `p${k}`)}</p>
+    )
+  }
+
+  return <>{blocks}</>
+}
+
 interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
@@ -252,13 +333,13 @@ export function ChatWidget() {
                   <div key={i} className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}>
                     <div
                       className={cn(
-                        'max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm whitespace-pre-wrap leading-relaxed',
+                        'max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed',
                         m.role === 'user'
-                          ? 'bg-navy-700 text-white rounded-br-sm'
+                          ? 'bg-navy-700 text-white rounded-br-sm whitespace-pre-wrap'
                           : 'bg-white border border-gray-200 text-gray-700 rounded-bl-sm'
                       )}
                     >
-                      {m.content}
+                      {m.role === 'assistant' ? <FormattedMessage text={m.content} /> : m.content}
                       {m.role === 'assistant' && m.sources && m.sources.length > 0 && (
                         <div className="mt-2.5 pt-2.5 border-t border-gray-100 space-y-1">
                           <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Sources</p>
