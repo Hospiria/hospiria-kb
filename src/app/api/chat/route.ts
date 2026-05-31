@@ -62,12 +62,20 @@ export async function POST(request: Request) {
     conversationId = conv.id
   }
 
-  // Load prior turns for context
-  const { data: history } = await supabase
-    .from('chat_messages')
-    .select('role, content')
-    .eq('conversation_id', conversationId)
-    .order('created_at', { ascending: true })
+  // Load prior turns for context + the known client/platform taxonomy so the
+  // assistant can recognise and ask about the right company.
+  const [{ data: history }, { data: companyRows }, { data: platformRows }] = await Promise.all([
+    supabase
+      .from('chat_messages')
+      .select('role, content')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: true }),
+    supabase.from('companies').select('name').eq('is_active', true).order('name'),
+    supabase.from('platforms').select('name').eq('is_active', true).order('name'),
+  ])
+
+  const companyNames = ((companyRows ?? []) as { name: string }[]).map(c => c.name)
+  const platformNames = ((platformRows ?? []) as { name: string }[]).map(p => p.name)
 
   // Persist the user's message
   await supabase
@@ -84,29 +92,51 @@ export async function POST(request: Request) {
     { role: 'user', content: message },
   ]
 
-  const system = `You are the Hospiria Knowledge Base assistant — a helpful guide for staff at a short-term rental management company.
+  const companyList = companyNames.length
+    ? companyNames.join(', ')
+    : '(none configured yet)'
+  const platformList = platformNames.length
+    ? platformNames.join(', ')
+    : '(none configured yet)'
 
-Your ONLY source of truth is the company's SOPs (Standard Operating Procedures). To answer any question, you MUST use the search_sops tool to find relevant SOPs first. Search more than once with different keywords if the first search isn't enough.
+  const system = `You are the Hospiria Knowledge Base assistant — an expert helper for Hospiria's internal Services team.
 
-Guidelines:
-- Answer concisely and practically, in the context of Hospiria's operations.
-- Base every answer on the SOP content returned by the tool. Do NOT invent procedures, times, or policies that aren't in the SOPs.
-- When you reference a procedure, name the SOP it came from so the user can open it.
-- If a question mentions a specific company or platform (e.g. "Plum Guide", "Airbnb", a brand name), include that in your search query.
-- If you genuinely cannot find anything relevant after searching, say so plainly and suggest what the user could search for or who to ask — do not guess.
-- Keep a friendly, professional tone. Use short paragraphs or bullet points.`
+ABOUT HOSPIRIA
+Hospiria is a Property Management System (PMS) for short-term rentals. On top of the software, Hospiria provides managed services to clients: 24/7 reservations handling, onboarding clients' listings onto booking platforms, and 24/7 in-stay guest support.
+
+WHO YOU ARE HELPING
+Your users are Hospiria's Services team — largely an outsourced team in the Philippines, working across three functions: Onboarding, Guest Services, and Reservations. They manage many different client portfolios at once.
+
+THE KEY COMPLEXITY — PROCESSES VARY BY CLIENT
+Different clients/portfolios have different processes (check-in times and methods, key handover, deposits, cancellation rules, guest messaging tone, fees, etc.). So a question like "what is our check-in process?" usually has NO single answer — it depends on the company.
+
+HOW TO BEHAVE
+1. When a question is process-specific and the user has NOT said which client it's for, ASK which company first before searching. You can reference the known clients below to help them pick.
+2. Briefly clarify intent when it changes the answer — e.g. "Are you helping a guest right now, or just need the process for reference?" and, if guest-facing, "Do you want me to draft a message you can send?" Ask only the 1–2 questions that actually matter; don't interrogate.
+3. Once you know the company (and intent), call search_sops with the keywords AND the company name so you pull that client's specific SOPs.
+4. If the user is mid-interaction with a guest, you can DRAFT a ready-to-send guest message, using the client's templates and tone found in the SOPs. Clearly label it as a draft.
+5. Always ground answers in SOP content returned by the tool — never invent times, fees, or policies. Name the SOP(s) you used. If nothing relevant exists for that client, say so and suggest escalating to their team lead rather than guessing.
+6. Be concise and practical. Short paragraphs or bullets.
+
+KNOWN CLIENTS / COMPANIES: ${companyList}
+
+KNOWN PLATFORMS: ${platformList}`
 
   const tools: Anthropic.Tool[] = [
     {
       name: 'search_sops',
       description:
-        'Search the Hospiria SOP knowledge base by keyword. Returns matching SOPs with their title and an excerpt of relevant content. Use specific keywords, including any company or platform names mentioned in the question.',
+        'Search the Hospiria SOP knowledge base. Returns matching SOPs with their title and a relevant excerpt. Always pass the company name when the question is about a specific client, so results are scoped to that client\'s SOPs. Include any platform names (e.g. Airbnb, Plum Guide) in the query when relevant.',
       input_schema: {
         type: 'object',
         properties: {
           query: {
             type: 'string',
-            description: 'Keywords to search for, e.g. "check in time", "Plum Guide onboarding", "security deposit".',
+            description: 'Keywords to search for, e.g. "check in process", "onboarding", "security deposit", "extension request".',
+          },
+          company: {
+            type: 'string',
+            description: 'Optional. The client/company to scope the search to (must be one of the known clients). Omit for general/cross-client questions.',
           },
         },
         required: ['query'],
@@ -133,9 +163,12 @@ Guidelines:
 
         for (const block of resp.content) {
           if (block.type === 'tool_use' && block.name === 'search_sops') {
-            const q = ((block.input as { query?: string }).query ?? '').toString()
+            const args = block.input as { query?: string; company?: string }
+            const q = (args.query ?? '').toString()
+            const company = (args.company ?? '').toString()
             const hits = await searchSops(supabase, {
               query: q,
+              company,
               role: profile.role,
               effectiveUserId,
             })

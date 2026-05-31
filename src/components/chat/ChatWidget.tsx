@@ -226,13 +226,15 @@ export function ChatWidget() {
                     </div>
                     <p className="text-sm font-medium text-navy-700">How can I help?</p>
                     <p className="text-xs text-gray-400 mt-1 mb-4">
-                      I&apos;ll search the SOPs to answer your question.
+                      Tell me the client and I&apos;ll find the exact process — many
+                      things differ per portfolio.
                     </p>
                     <div className="space-y-1.5 text-left">
                       {[
-                        'What is the standard check-in time?',
-                        'How do I onboard a property on Plum Guide?',
-                        'How are security deposits handled?',
+                        'What is the check-in process for…?',
+                        'Help me handle a guest extension request',
+                        'How do I onboard a listing onto Airbnb?',
+                        'Draft a late check-in message for a guest',
                       ].map(s => (
                         <button
                           key={s}
