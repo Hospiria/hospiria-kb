@@ -7,6 +7,7 @@ import { getEffectiveSession } from '@/lib/impersonation'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { Topbar } from '@/components/layout/Topbar'
 import { ImpersonationBanner } from '@/components/layout/ImpersonationBanner'
+import { ChatWidget } from '@/components/chat/ChatWidget'
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient()
@@ -70,6 +71,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           {children}
         </main>
       </div>
+      <ChatWidget />
     </div>
   )
 }
