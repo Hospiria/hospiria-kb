@@ -8,7 +8,7 @@ import { redactPII } from '@/lib/redact'
 import { searchSops } from '@/lib/sop-search'
 
 const MAX_CHARS = 14000           // cap transcript sent to the model
-const MAX_CANDIDATES = 8          // per chunk; chunking + client-side dedup covers the rest
+const MAX_CANDIDATES = 6          // per chunk; fewer → shorter draft step → request finishes inside 60s. Chunking + client-side dedup covers the rest.
 
 interface ExtractCandidate {
   title: string

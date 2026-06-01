@@ -38,8 +38,33 @@ interface AnalyseResponse {
 // Keep each chunk's raw text below this so that, after the server strips
 // timestamps and redacts, it stays under the route's MAX_CHARS (14000) and is
 // never truncated. Split on line boundaries so we don't cut mid-message.
-const CHUNK_CHARS = 16000
-const MAX_CHUNKS = 60 // safety cap for very large exports
+// Smaller chunks mean fewer candidates per request → a shorter draft step →
+// each request finishes comfortably inside the function's 60s ceiling.
+const CHUNK_CHARS = 11000
+const MAX_CHUNKS = 80 // safety cap for very large exports
+
+type ChunkResponse = AnalyseResponse & { error?: string }
+
+// One part can transiently fail — a Vercel function timeout returns a non-JSON
+// error page, or the model occasionally returns malformed JSON. Retry a few
+// times with backoff so every part gets analysed rather than being dropped.
+async function analyseChunk(text: string, attempts = 3): Promise<ChunkResponse | null> {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const res = await fetch('/api/admin/ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      })
+      const bodyText = await res.text()
+      if (res.ok) {
+        try { return JSON.parse(bodyText) as ChunkResponse } catch { /* malformed — retry */ }
+      }
+    } catch { /* network/timeout — retry */ }
+    if (attempt < attempts - 1) await new Promise(r => setTimeout(r, 1200 * (attempt + 1)))
+  }
+  return null
+}
 
 function chunkRaw(raw: string, maxChars: number): string[] {
   const lines = raw.split(/\r?\n/)
@@ -59,7 +84,7 @@ function chunkRaw(raw: string, maxChars: number): string[] {
 export function ConversationIngest() {
   const [text, setText] = useState('')
   const [analysing, setAnalysing] = useState(false)
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
+  const [progress, setProgress] = useState<{ done: number; total: number; retry?: { done: number; total: number } } | null>(null)
   const [warn, setWarn] = useState('')
   const [error, setError] = useState('')
   const [result, setResult] = useState<AnalyseResponse | null>(null)
@@ -104,62 +129,61 @@ export function ConversationIngest() {
     const seenAdvice = new Set<string>()
     let companies: CompanyLite[] = []
     let source: 'whatsapp' | 'paste' = 'paste'
-    let failed = 0
+    const failedIdx: number[] = []
 
-    type ChunkResponse = AnalyseResponse & { error?: string }
+    // Fold one part's results into the running, de-duplicated totals.
+    const absorb = (data: ChunkResponse) => {
+      source = data.source ?? source
+      if (Array.isArray(data.companies) && data.companies.length) companies = data.companies
+      for (const [k, v] of Object.entries((data.redactionCounts ?? {}) as Record<string, number>)) {
+        mergedCounts[k] = (mergedCounts[k] ?? 0) + v
+      }
+      for (const c of (data.candidates ?? []) as Candidate[]) {
+        const key = c.title.trim().toLowerCase()
+        if (!key || seenCandidate.has(key)) continue
+        seenCandidate.add(key)
+        allCandidates.push(c)
+      }
+      for (const a of (data.advice ?? []) as AdvicePattern[]) {
+        const key = a.text.trim().toLowerCase()
+        if (!key || seenAdvice.has(key)) continue
+        seenAdvice.add(key)
+        allAdvice.push(a)
+      }
+    }
 
     try {
+      // Pass 1 — analyse every part in order (analyseChunk retries transient
+      // failures internally). Parts that still fail are queued for a second pass.
       for (let ci = 0; ci < chunks.length; ci++) {
-        // A single chunk can fail (e.g. a function timeout returns a non-JSON
-        // error page). Parse defensively and skip the bad part rather than
-        // aborting the whole run — partial learning beats none.
-        let data: ChunkResponse | null = null
-        try {
-          const res = await fetch('/api/admin/ingest', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: chunks[ci] }),
-          })
-          const bodyText = await res.text()
-          try { data = JSON.parse(bodyText) as ChunkResponse } catch { data = null }
-          if (!res.ok) data = null
-        } catch {
-          data = null
-        }
-
-        if (!data) {
-          failed++
-          setProgress({ done: ci + 1, total: chunks.length })
-          continue
-        }
-
-        source = data.source ?? source
-        if (Array.isArray(data.companies) && data.companies.length) companies = data.companies
-        for (const [k, v] of Object.entries((data.redactionCounts ?? {}) as Record<string, number>)) {
-          mergedCounts[k] = (mergedCounts[k] ?? 0) + v
-        }
-        for (const c of (data.candidates ?? []) as Candidate[]) {
-          const key = c.title.trim().toLowerCase()
-          if (!key || seenCandidate.has(key)) continue
-          seenCandidate.add(key)
-          allCandidates.push(c)
-        }
-        for (const a of (data.advice ?? []) as AdvicePattern[]) {
-          const key = a.text.trim().toLowerCase()
-          if (!key || seenAdvice.has(key)) continue
-          seenAdvice.add(key)
-          allAdvice.push(a)
-        }
+        const data = await analyseChunk(chunks[ci])
+        if (!data) failedIdx.push(ci)
+        else absorb(data)
         setProgress({ done: ci + 1, total: chunks.length })
       }
 
+      // Pass 2 — give the stragglers another full run. Timeouts are usually
+      // transient (load spikes), so a clean retry after the queue has drained
+      // typically clears the rest.
+      if (failedIdx.length > 0) {
+        const stillFailed: number[] = []
+        for (let k = 0; k < failedIdx.length; k++) {
+          setProgress({ done: chunks.length, total: chunks.length, retry: { done: k, total: failedIdx.length } })
+          const data = await analyseChunk(chunks[failedIdx[k]])
+          if (!data) stillFailed.push(failedIdx[k])
+          else absorb(data)
+        }
+        failedIdx.length = 0
+        failedIdx.push(...stillFailed)
+      }
+
       // All parts failed → surface as an error, not an empty result.
-      if (failed === chunks.length) {
-        setError(`Analysis failed on all ${chunks.length} part${chunks.length === 1 ? '' : 's'}. Try a shorter section, or wait a moment and retry.`)
+      if (failedIdx.length === chunks.length) {
+        setError(`Analysis failed on all ${chunks.length} part${chunks.length === 1 ? '' : 's'}. Wait a moment and retry, or try a shorter section.`)
         return
       }
-      if (failed > 0) {
-        setWarn(`${failed} of ${chunks.length} parts couldn’t be analysed (likely a timeout) and were skipped. Results below are from the rest — you can re-run those sections separately.`)
+      if (failedIdx.length > 0) {
+        setWarn(`${failedIdx.length} of ${chunks.length} parts couldn’t be analysed after retries and were skipped. Results below are from the rest — re-running usually clears the remaining parts.`)
       }
 
       const merged: AnalyseResponse = {
@@ -334,7 +358,13 @@ export function ConversationIngest() {
             className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-semibold hover:bg-teal-700 flex items-center gap-2 disabled:opacity-50"
           >
             {analysing
-              ? <><Loader2 className="w-4 h-4 animate-spin" /> {progress && progress.total > 1 ? `Analysing part ${Math.min(progress.done + 1, progress.total)} of ${progress.total}…` : 'Analysing…'}</>
+              ? <><Loader2 className="w-4 h-4 animate-spin" /> {
+                  progress?.retry
+                    ? `Retrying part ${Math.min(progress.retry.done + 1, progress.retry.total)} of ${progress.retry.total}…`
+                    : progress && progress.total > 1
+                      ? `Analysing part ${Math.min(progress.done + 1, progress.total)} of ${progress.total}…`
+                      : 'Analysing…'
+                }</>
               : <><Sparkles className="w-4 h-4" /> Analyse conversation</>}
           </button>
         </div>
