@@ -4,8 +4,16 @@ import { useState, useRef } from 'react'
 import {
   Loader2, Upload, Sparkles, ShieldCheck, Plus, FileText,
   CheckCircle2, RefreshCw, PencilLine, ExternalLink, ChevronDown,
+  Brain,
 } from 'lucide-react'
 import Link from 'next/link'
+
+type AdviceSection = 'principle' | 'person' | 'guardrail'
+const ADVICE_SECTION_LABEL: Record<AdviceSection, string> = {
+  principle: 'Principle',
+  person: 'Person / role',
+  guardrail: 'Guardrail',
+}
 
 interface CompanyLite { id: string; name: string }
 interface Candidate {
@@ -17,12 +25,14 @@ interface Candidate {
   bodyMarkdown?: string
   changeNote?: string
 }
+interface AdvicePattern { text: string; section: AdviceSection }
 interface AnalyseResponse {
   source: 'whatsapp' | 'paste'
   redactionCounts: Record<string, number>
   truncated: boolean
   companies: CompanyLite[]
   candidates: Candidate[]
+  advice: AdvicePattern[]
 }
 
 export function ConversationIngest() {
@@ -37,6 +47,11 @@ export function ConversationIngest() {
   const [creating, setCreating] = useState(false)
   const [createdMsg, setCreatedMsg] = useState('')
 
+  // Editable working copy of advice patterns + which to add to behaviour
+  const [adviceItems, setAdviceItems] = useState<{ text: string; section: AdviceSection; selected: boolean }[]>([])
+  const [addingAdvice, setAddingAdvice] = useState(false)
+  const [adviceMsg, setAdviceMsg] = useState('')
+
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -50,6 +65,7 @@ export function ConversationIngest() {
     setError('')
     setResult(null)
     setCreatedMsg('')
+    setAdviceMsg('')
     try {
       const res = await fetch('/api/admin/ingest', {
         method: 'POST',
@@ -76,10 +92,65 @@ export function ConversationIngest() {
         }
       })
       setDrafts(seeded)
+
+      // Seed advice working copy (all selected by default).
+      setAdviceItems(((data.advice ?? []) as AdvicePattern[]).map(a => ({ ...a, selected: true })))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Analysis failed')
     } finally {
       setAnalysing(false)
+    }
+  }
+
+  function updateAdvice(i: number, patch: Partial<{ text: string; section: AdviceSection; selected: boolean }>) {
+    setAdviceItems(prev => prev.map((a, idx) => (idx === i ? { ...a, ...patch } : a)))
+  }
+
+  // Add selected advice into the bot's behaviour config. For each affected
+  // section we read the current items, append the new ones, then save the
+  // merged list back via the same bot-config API the Behaviour tab uses.
+  async function addAdviceToBehaviour() {
+    const chosen = adviceItems.filter(a => a.selected && a.text.trim())
+    if (chosen.length === 0) { setAdviceMsg('Nothing selected to add.'); return }
+
+    setAddingAdvice(true)
+    setAdviceMsg('')
+    try {
+      const config = await fetch('/api/admin/bot-config').then(r => r.json())
+      const sections = new Set(chosen.map(a => a.section))
+      let added = 0
+
+      for (const section of sections) {
+        const existing = ((config.sections?.[section] ?? []) as { content: string; is_active: boolean }[])
+          .map(r => ({ content: r.content, is_active: r.is_active }))
+        const existingText = new Set(existing.map(e => e.content.trim().toLowerCase()))
+        const toAdd = chosen
+          .filter(a => a.section === section)
+          .filter(a => !existingText.has(a.text.trim().toLowerCase()))
+          .map(a => ({ content: a.text.trim(), is_active: true }))
+        if (toAdd.length === 0) continue
+
+        const res = await fetch('/api/admin/bot-config', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ section, items: [...existing, ...toAdd] }),
+        })
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}))
+          throw new Error(d.error || `Failed saving ${section}`)
+        }
+        added += toAdd.length
+      }
+
+      setAdviceMsg(added > 0
+        ? `Added ${added} item${added === 1 ? '' : 's'} to Behaviour. Live on the next chat message.`
+        : 'Those items were already in your behaviour config.')
+      // Drop the ones we just added from the list.
+      setAdviceItems(prev => prev.filter(a => !(a.selected && a.text.trim())))
+    } catch (e) {
+      setAdviceMsg(e instanceof Error ? e.message : 'Failed to add advice')
+    } finally {
+      setAddingAdvice(false)
     }
   }
 
@@ -131,6 +202,7 @@ export function ConversationIngest() {
   const exists = candidates.map((c, i) => ({ c, i })).filter(x => x.c.classification === 'exists')
   const redactionTotal = result ? Object.values(result.redactionCounts).reduce((a, b) => a + b, 0) : 0
   const selectedCount = Object.values(drafts).filter(d => d.selected).length
+  const selectedAdviceCount = adviceItems.filter(a => a.selected && a.text.trim()).length
 
   return (
     <div className="space-y-5">
@@ -184,9 +256,14 @@ export function ConversationIngest() {
               <span className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700">Long chat — analysed the first portion. Run the rest separately.</span>
             )}
             <span className="text-slate-400">{candidates.length} topic{candidates.length === 1 ? '' : 's'} found</span>
+            {adviceItems.length > 0 && (
+              <span className="px-2.5 py-1 rounded-lg bg-teal-50 text-teal-700 flex items-center gap-1.5">
+                <Brain className="w-3.5 h-3.5" /> {adviceItems.length} advice item{adviceItems.length === 1 ? '' : 's'}
+              </span>
+            )}
           </div>
 
-          {candidates.length === 0 && (
+          {candidates.length === 0 && adviceItems.length === 0 && (
             <p className="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-xl p-4">
               No reusable SOP-worthy knowledge found in this conversation.
             </p>
@@ -267,6 +344,59 @@ export function ConversationIngest() {
                     </li>
                   )
                 })}
+              </ul>
+            </div>
+          )}
+
+          {/* ADVICE — "our ways" → behaviour config */}
+          {adviceItems.length > 0 && (
+            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+              <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Brain className="w-5 h-5 text-teal-600" />
+                  <h3 className="font-semibold text-slate-900">Our ways — advice to teach the bot</h3>
+                  <span className="text-sm text-slate-400">({adviceItems.length})</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  {adviceMsg && <span className="text-xs text-teal-600 font-medium">{adviceMsg}</span>}
+                  <button
+                    onClick={addAdviceToBehaviour}
+                    disabled={addingAdvice || selectedAdviceCount === 0}
+                    className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-semibold hover:bg-teal-700 flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {addingAdvice ? <><Loader2 className="w-4 h-4 animate-spin" /> Adding…</> : <><CheckCircle2 className="w-4 h-4" /> Add {selectedAdviceCount} to Behaviour</>}
+                  </button>
+                </div>
+              </div>
+              <p className="px-5 pt-3 text-xs text-slate-400">
+                How the team handles things and who&apos;s who. Approved items are added to the matching section in the Behaviour tab and shape every future chat answer.
+              </p>
+              <ul className="divide-y divide-slate-100">
+                {adviceItems.map((a, i) => (
+                  <li key={i} className="px-5 py-3 flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={a.selected}
+                      onChange={e => updateAdvice(i, { selected: e.target.checked })}
+                      className="mt-2 w-4 h-4 accent-teal-600"
+                    />
+                    <textarea
+                      value={a.text}
+                      onChange={e => updateAdvice(i, { text: e.target.value })}
+                      rows={2}
+                      className="flex-1 text-sm border border-slate-200 rounded-lg px-3 py-2 text-slate-700 focus:outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-200 resize-y"
+                    />
+                    <select
+                      value={a.section}
+                      onChange={e => updateAdvice(i, { section: e.target.value as AdviceSection })}
+                      className="mt-0.5 text-xs font-medium border border-slate-200 rounded-lg px-2 py-1.5 text-slate-600 focus:outline-none focus:border-teal-400 cursor-pointer"
+                    >
+                      {(Object.keys(ADVICE_SECTION_LABEL) as AdviceSection[]).map(s => (
+                        <option key={s} value={s}>{ADVICE_SECTION_LABEL[s]}</option>
+                      ))}
+                    </select>
+                  </li>
+                ))}
               </ul>
             </div>
           )}

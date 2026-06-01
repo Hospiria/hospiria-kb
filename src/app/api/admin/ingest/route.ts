@@ -17,6 +17,17 @@ interface ExtractCandidate {
   keywords: string
 }
 
+type AdviceSection = 'principle' | 'person' | 'guardrail'
+interface AdvicePattern {
+  text: string
+  section: AdviceSection
+}
+
+interface ExtractResult {
+  candidates: ExtractCandidate[]
+  advice: AdvicePattern[]
+}
+
 interface ResultCandidate {
   title: string
   summary: string
@@ -33,6 +44,16 @@ function parseJsonArray<T>(text: string): T[] {
   if (start === -1 || end === -1) return []
   try { return JSON.parse(text.slice(start, end + 1)) as T[] } catch { return [] }
 }
+
+function parseJsonObject<T>(text: string): T | null {
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start === -1 || end === -1) return null
+  try { return JSON.parse(text.slice(start, end + 1)) as T } catch { return null }
+}
+
+const ADVICE_SECTIONS: AdviceSection[] = ['principle', 'person', 'guardrail']
+const MAX_ADVICE = 10
 
 export async function POST(request: Request) {
   const supabase = createClient()
@@ -65,33 +86,48 @@ export async function POST(request: Request) {
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-  // 2. Extract candidate SOP topics from the conversation.
+  // 2. Extract (a) candidate SOP topics and (b) "our ways" advice patterns
+  //    — how the team coaches/handles things, who's who — that belong in the
+  //    bot's behaviour config rather than as a standalone SOP.
   let candidates: ExtractCandidate[] = []
+  let advice: AdvicePattern[] = []
   try {
     const extractResp = await anthropic.messages.create({
       model: 'claude-haiku-4-5',
-      max_tokens: 1500,
-      system: `You read internal operations chats from Hospiria (a short-term-rental property manager) and identify reusable knowledge worth capturing as an SOP (standard operating procedure).
+      max_tokens: 2000,
+      system: `You read internal operations chats from Hospiria (a short-term-rental property manager). You extract two different things:
 
-Pull out distinct, reusable processes/answers — NOT one-off chatter. Each should be something the team would look up again.
+1. CANDIDATES — distinct, reusable processes/answers worth capturing as an SOP (standard operating procedure). Something the team would look up again. NOT one-off chatter.
+
+2. ADVICE — "our ways": how managers coach the team, house-style rules of thumb, and who's who. These teach the assistant how to behave, not what process to follow. Classify each piece of advice into one section:
+   - "principle": a rule of thumb / how-we-do-things (e.g. "Always add a small margin on currency conversions", "Remember to include the cleaning fee when quoting").
+   - "person": who someone is and what they handle (e.g. "Sonali is a manager — escalate rate/discount approvals to her").
+   - "guardrail": a hard rule or what to do when stuck / no SOP exists (e.g. "If unsure about a discount, ask a manager before quoting").
 
 Known clients: ${companyList}
 
-IMPORTANT — privacy: ignore and never reproduce any guest names, addresses, phone numbers, door/lockbox codes or booking references. Capture only the reusable process.
+IMPORTANT — privacy: ignore and never reproduce any guest names, addresses, phone numbers, door/lockbox codes or booking references. Capture only the reusable knowledge. Write advice as a generalised instruction, not a quote of the specific conversation.
 
-Respond with ONLY a JSON array (max ${MAX_CANDIDATES}), no prose:
-[{"title":"short SOP title","summary":"1-2 sentence description of the process","client":"<exact known client name or null if generic>","keywords":"search keywords for finding existing SOPs"}]`,
+Respond with ONLY a JSON object, no prose:
+{"candidates":[{"title":"short SOP title","summary":"1-2 sentence description","client":"<exact known client name or null>","keywords":"search keywords"}],"advice":[{"text":"one generalised instruction","section":"principle|person|guardrail"}]}
+
+Max ${MAX_CANDIDATES} candidates, max ${MAX_ADVICE} advice items. Either array may be empty.`,
       messages: [{ role: 'user', content: `Conversation transcript:\n\n${transcript}` }],
     })
     const text = extractResp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join('')
-    candidates = parseJsonArray<ExtractCandidate>(text).slice(0, MAX_CANDIDATES)
+    const parsed = parseJsonObject<ExtractResult>(text)
+    candidates = (parsed?.candidates ?? parseJsonArray<ExtractCandidate>(text)).slice(0, MAX_CANDIDATES)
+    advice = (parsed?.advice ?? [])
+      .filter(a => a && typeof a.text === 'string' && a.text.trim() && ADVICE_SECTIONS.includes(a.section))
+      .map(a => ({ text: a.text.trim(), section: a.section }))
+      .slice(0, MAX_ADVICE)
   } catch (err) {
     console.error('Ingest extract error:', err)
     return NextResponse.json({ error: 'Could not analyse the conversation. Try a shorter section.' }, { status: 500 })
   }
 
   if (candidates.length === 0) {
-    return NextResponse.json({ source, redactionCounts, truncated, companies, candidates: [] })
+    return NextResponse.json({ source, redactionCounts, truncated, companies, candidates: [], advice })
   }
 
   // 3. For each candidate, find the closest existing SOPs (role = super_admin sees all).
@@ -172,5 +208,5 @@ Respond with ONLY a JSON array, no prose:
     return NextResponse.json({ error: 'Could not draft SOPs from the conversation. Try a shorter section.' }, { status: 500 })
   }
 
-  return NextResponse.json({ source, redactionCounts, truncated, companies, candidates: results })
+  return NextResponse.json({ source, redactionCounts, truncated, companies, candidates: results, advice })
 }
