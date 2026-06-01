@@ -35,9 +35,31 @@ interface AnalyseResponse {
   advice: AdvicePattern[]
 }
 
+// Keep each chunk's raw text below this so that, after the server strips
+// timestamps and redacts, it stays under the route's MAX_CHARS (14000) and is
+// never truncated. Split on line boundaries so we don't cut mid-message.
+const CHUNK_CHARS = 16000
+const MAX_CHUNKS = 60 // safety cap for very large exports
+
+function chunkRaw(raw: string, maxChars: number): string[] {
+  const lines = raw.split(/\r?\n/)
+  const chunks: string[] = []
+  let cur = ''
+  for (const line of lines) {
+    if (cur.length + line.length + 1 > maxChars && cur.length > 0) {
+      chunks.push(cur)
+      cur = ''
+    }
+    cur += (cur ? '\n' : '') + line
+  }
+  if (cur.trim()) chunks.push(cur)
+  return (chunks.length ? chunks : [raw]).slice(0, MAX_CHUNKS)
+}
+
 export function ConversationIngest() {
   const [text, setText] = useState('')
   const [analysing, setAnalysing] = useState(false)
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [error, setError] = useState('')
   const [result, setResult] = useState<AnalyseResponse | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -66,22 +88,67 @@ export function ConversationIngest() {
     setResult(null)
     setCreatedMsg('')
     setAdviceMsg('')
+
+    // Split large exports into line-aligned chunks and analyse each in turn,
+    // accumulating + de-duplicating results. Each chunk is redacted server-side
+    // before the AI sees it, so the full file can be dropped in safely.
+    const chunks = chunkRaw(text, CHUNK_CHARS)
+    setProgress({ done: 0, total: chunks.length })
+
+    const allCandidates: Candidate[] = []
+    const allAdvice: AdvicePattern[] = []
+    const mergedCounts: Record<string, number> = {}
+    const seenCandidate = new Set<string>()
+    const seenAdvice = new Set<string>()
+    let companies: CompanyLite[] = []
+    let source: 'whatsapp' | 'paste' = 'paste'
+
     try {
-      const res = await fetch('/api/admin/ingest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Analysis failed')
-      setResult(data)
+      for (let ci = 0; ci < chunks.length; ci++) {
+        const res = await fetch('/api/admin/ingest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: chunks[ci] }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || `Analysis failed on part ${ci + 1}`)
+
+        source = data.source ?? source
+        if (Array.isArray(data.companies) && data.companies.length) companies = data.companies
+        for (const [k, v] of Object.entries((data.redactionCounts ?? {}) as Record<string, number>)) {
+          mergedCounts[k] = (mergedCounts[k] ?? 0) + v
+        }
+        for (const c of (data.candidates ?? []) as Candidate[]) {
+          const key = c.title.trim().toLowerCase()
+          if (!key || seenCandidate.has(key)) continue
+          seenCandidate.add(key)
+          allCandidates.push(c)
+        }
+        for (const a of (data.advice ?? []) as AdvicePattern[]) {
+          const key = a.text.trim().toLowerCase()
+          if (!key || seenAdvice.has(key)) continue
+          seenAdvice.add(key)
+          allAdvice.push(a)
+        }
+        setProgress({ done: ci + 1, total: chunks.length })
+      }
+
+      const merged: AnalyseResponse = {
+        source,
+        redactionCounts: mergedCounts,
+        truncated: false,
+        companies,
+        candidates: allCandidates,
+        advice: allAdvice,
+      }
+      setResult(merged)
 
       // Seed editable drafts for "new" candidates, with a client pre-matched.
       const seeded: typeof drafts = {}
-      ;(data.candidates as Candidate[]).forEach((c, i) => {
+      allCandidates.forEach((c, i) => {
         if (c.classification === 'new') {
           const match = c.client
-            ? (data.companies as CompanyLite[]).find(co => co.name.toLowerCase() === c.client!.toLowerCase())
+            ? companies.find(co => co.name.toLowerCase() === c.client!.toLowerCase())
             : undefined
           seeded[i] = {
             title: c.title,
@@ -94,11 +161,12 @@ export function ConversationIngest() {
       setDrafts(seeded)
 
       // Seed advice working copy (all selected by default).
-      setAdviceItems(((data.advice ?? []) as AdvicePattern[]).map(a => ({ ...a, selected: true })))
+      setAdviceItems(allAdvice.map(a => ({ ...a, selected: true })))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Analysis failed')
     } finally {
       setAnalysing(false)
+      setProgress(null)
     }
   }
 
@@ -224,7 +292,7 @@ export function ConversationIngest() {
           value={text}
           onChange={e => setText(e.target.value)}
           rows={8}
-          placeholder="Paste the chat here — or use “Upload .txt” for an exported WhatsApp chat. Personal details (phones, emails, addresses) are stripped on our server before anything is analysed."
+          placeholder="Paste the chat here — or use “Upload .txt” for an exported WhatsApp chat. You can drop a whole export; it’s processed in parts. Personal details (phones, emails, addresses, codes) are stripped on our server before anything is analysed."
           className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 text-slate-700 focus:outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-200 resize-y font-mono"
         />
         <div className="flex items-center justify-between">
@@ -236,7 +304,9 @@ export function ConversationIngest() {
             disabled={analysing || text.trim().length < 20}
             className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-semibold hover:bg-teal-700 flex items-center gap-2 disabled:opacity-50"
           >
-            {analysing ? <><Loader2 className="w-4 h-4 animate-spin" /> Analysing…</> : <><Sparkles className="w-4 h-4" /> Analyse conversation</>}
+            {analysing
+              ? <><Loader2 className="w-4 h-4 animate-spin" /> {progress && progress.total > 1 ? `Analysing part ${Math.min(progress.done + 1, progress.total)} of ${progress.total}…` : 'Analysing…'}</>
+              : <><Sparkles className="w-4 h-4" /> Analyse conversation</>}
           </button>
         </div>
         {error && <p className="text-sm text-red-600">{error}</p>}
