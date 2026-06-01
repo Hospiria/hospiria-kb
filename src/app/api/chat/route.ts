@@ -1,10 +1,11 @@
 export const maxDuration = 60
 
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getEffectiveSession } from '@/lib/impersonation'
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { searchSops } from '@/lib/sop-search'
+import { loadBotInstructions } from '@/lib/bot-instructions'
 
 interface SopSource {
   id: string
@@ -99,6 +100,18 @@ export async function POST(request: Request) {
     ? platformNames.join(', ')
     : '(none configured yet)'
 
+  // Behaviour rules are admin-editable (see /admin/ai-training). Load them via
+  // the service-role client. If the table is empty/unreadable, fall back to the
+  // baked-in behaviour list so the bot never regresses.
+  const behaviour = await loadBotInstructions(createAdminClient())
+  const FALLBACK_BEHAVIOUR = `
+
+HOW TO BEHAVE
+- When a question is process-specific and the user has NOT said which client it's for, ASK which company first before searching.
+- Briefly clarify intent when it changes the answer — helping a guest now, or just need the process? If guest-facing, offer to draft a message. Ask only the 1–2 questions that matter.
+- Always ground answers in SOP content returned by the tool — never invent times, fees, or policies. Name the SOP(s) you used. If nothing relevant exists for that client, say so and suggest escalating to their team lead.
+- Be concise and practical. Short paragraphs or bullets.`
+
   const system = `You are the Hospiria Knowledge Base assistant — an expert helper for Hospiria's internal Services team.
 
 ABOUT HOSPIRIA
@@ -110,13 +123,9 @@ Your users are Hospiria's Services team — largely an outsourced team in the Ph
 THE KEY COMPLEXITY — PROCESSES VARY BY CLIENT
 Different clients/portfolios have different processes (check-in times and methods, key handover, deposits, cancellation rules, guest messaging tone, fees, etc.). So a question like "what is our check-in process?" usually has NO single answer — it depends on the company.
 
-HOW TO BEHAVE
-1. When a question is process-specific and the user has NOT said which client it's for, ASK which company first before searching. You can reference the known clients below to help them pick.
-2. Briefly clarify intent when it changes the answer — e.g. "Are you helping a guest right now, or just need the process for reference?" and, if guest-facing, "Do you want me to draft a message you can send?" Ask only the 1–2 questions that actually matter; don't interrogate.
-3. Once you know the company (and intent), call search_sops with the keywords AND the company name so you pull that client's specific SOPs.
-4. If the user is mid-interaction with a guest, you can DRAFT a ready-to-send guest message, using the client's templates and tone found in the SOPs. Clearly label it as a draft.
-5. Always ground answers in SOP content returned by the tool — never invent times, fees, or policies. Name the SOP(s) you used. If nothing relevant exists for that client, say so and suggest escalating to their team lead rather than guessing.
-6. Be concise and practical. Short paragraphs or bullets.
+USING THE KNOWLEDGE BASE
+- Once you know the company (and intent), call search_sops with the keywords AND the company name so you pull that client's specific SOPs. Include any relevant platform names in the query.
+- If the user is mid-interaction with a guest, you can DRAFT a ready-to-send guest message, using the client's templates and tone found in the SOPs. Clearly label it as a draft.${behaviour || FALLBACK_BEHAVIOUR}
 
 KNOWN CLIENTS / COMPANIES: ${companyList}
 
