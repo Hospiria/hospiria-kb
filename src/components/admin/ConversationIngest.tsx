@@ -60,6 +60,7 @@ export function ConversationIngest() {
   const [text, setText] = useState('')
   const [analysing, setAnalysing] = useState(false)
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
+  const [warn, setWarn] = useState('')
   const [error, setError] = useState('')
   const [result, setResult] = useState<AnalyseResponse | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -85,6 +86,7 @@ export function ConversationIngest() {
     if (text.trim().length < 20) { setError('Paste or upload a longer conversation first.'); return }
     setAnalysing(true)
     setError('')
+    setWarn('')
     setResult(null)
     setCreatedMsg('')
     setAdviceMsg('')
@@ -102,16 +104,34 @@ export function ConversationIngest() {
     const seenAdvice = new Set<string>()
     let companies: CompanyLite[] = []
     let source: 'whatsapp' | 'paste' = 'paste'
+    let failed = 0
+
+    type ChunkResponse = AnalyseResponse & { error?: string }
 
     try {
       for (let ci = 0; ci < chunks.length; ci++) {
-        const res = await fetch('/api/admin/ingest', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: chunks[ci] }),
-        })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error || `Analysis failed on part ${ci + 1}`)
+        // A single chunk can fail (e.g. a function timeout returns a non-JSON
+        // error page). Parse defensively and skip the bad part rather than
+        // aborting the whole run — partial learning beats none.
+        let data: ChunkResponse | null = null
+        try {
+          const res = await fetch('/api/admin/ingest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: chunks[ci] }),
+          })
+          const bodyText = await res.text()
+          try { data = JSON.parse(bodyText) as ChunkResponse } catch { data = null }
+          if (!res.ok) data = null
+        } catch {
+          data = null
+        }
+
+        if (!data) {
+          failed++
+          setProgress({ done: ci + 1, total: chunks.length })
+          continue
+        }
 
         source = data.source ?? source
         if (Array.isArray(data.companies) && data.companies.length) companies = data.companies
@@ -131,6 +151,15 @@ export function ConversationIngest() {
           allAdvice.push(a)
         }
         setProgress({ done: ci + 1, total: chunks.length })
+      }
+
+      // All parts failed → surface as an error, not an empty result.
+      if (failed === chunks.length) {
+        setError(`Analysis failed on all ${chunks.length} part${chunks.length === 1 ? '' : 's'}. Try a shorter section, or wait a moment and retry.`)
+        return
+      }
+      if (failed > 0) {
+        setWarn(`${failed} of ${chunks.length} parts couldn’t be analysed (likely a timeout) and were skipped. Results below are from the rest — you can re-run those sections separately.`)
       }
 
       const merged: AnalyseResponse = {
@@ -314,6 +343,12 @@ export function ConversationIngest() {
 
       {result && (
         <>
+          {warn && (
+            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
+              {warn}
+            </p>
+          )}
+
           {/* Summary */}
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 flex items-center gap-1.5">

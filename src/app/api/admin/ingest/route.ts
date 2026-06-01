@@ -8,7 +8,7 @@ import { redactPII } from '@/lib/redact'
 import { searchSops } from '@/lib/sop-search'
 
 const MAX_CHARS = 14000           // cap transcript sent to the model
-const MAX_CANDIDATES = 12
+const MAX_CANDIDATES = 8          // per chunk; chunking + client-side dedup covers the rest
 
 interface ExtractCandidate {
   title: string
@@ -131,9 +131,9 @@ Max ${MAX_CANDIDATES} candidates, max ${MAX_ADVICE} advice items. Either array m
   }
 
   // 3. For each candidate, find the closest existing SOPs (role = super_admin sees all).
-  const matchBlocks: string[] = []
-  for (let i = 0; i < candidates.length; i++) {
-    const c = candidates[i]
+  //    Run the lookups concurrently — sequential awaits here were the main cause
+  //    of slow requests timing out when a chunk produced many candidates.
+  const matchBlocks = await Promise.all(candidates.map(async (c, i) => {
     const hits = await searchSops(supabase, {
       query: c.keywords || c.title,
       company: c.client ?? undefined,
@@ -144,8 +144,8 @@ Max ${MAX_CANDIDATES} candidates, max ${MAX_ADVICE} advice items. Either array m
     const matchText = hits.length
       ? hits.map(h => `   • [${h.id}] ${h.title}: ${h.excerpt.slice(0, 200)}`).join('\n')
       : '   (no existing SOP found)'
-    matchBlocks.push(`#${i} ${c.title}\n${matchText}`)
-  }
+    return `#${i} ${c.title}\n${matchText}`
+  }))
 
   // 4. Classify each candidate and draft new SOPs / change notes.
   let results: ResultCandidate[] = []
