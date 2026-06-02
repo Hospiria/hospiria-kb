@@ -4,7 +4,7 @@ import { useState, useRef } from 'react'
 import {
   Loader2, Upload, Sparkles, ShieldCheck, Plus, FileText,
   CheckCircle2, RefreshCw, PencilLine, ExternalLink, ChevronDown,
-  Brain,
+  Brain, RotateCcw,
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -100,10 +100,33 @@ export function ConversationIngest() {
   const [addingAdvice, setAddingAdvice] = useState(false)
   const [adviceMsg, setAdviceMsg] = useState('')
 
+  // Wipe everything back to a blank slate so you can drop a different chat and
+  // start fresh — without being forced to save anything from the current run.
+  function resetAll() {
+    setText('')
+    setResult(null)
+    setDrafts({})
+    setAdviceItems([])
+    setError('')
+    setWarn('')
+    setCreatedMsg('')
+    setAdviceMsg('')
+    setProgress(null)
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     const content = await file.text()
+    // A new upload starts a clean run — drop any results from the last chat.
+    setResult(null)
+    setDrafts({})
+    setAdviceItems([])
+    setError('')
+    setWarn('')
+    setCreatedMsg('')
+    setAdviceMsg('')
     setText(content)
   }
 
@@ -332,6 +355,14 @@ export function ConversationIngest() {
         <div className="flex items-center justify-between">
           <p className="text-sm font-semibold text-slate-700">Paste a conversation, or upload a WhatsApp export</p>
           <div className="flex items-center gap-2">
+            {(text || result) && !analysing && (
+              <button
+                onClick={resetAll}
+                className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700 flex items-center gap-2"
+              >
+                <RotateCcw className="w-4 h-4" /> Start over
+              </button>
+            )}
             <input ref={fileRef} type="file" accept=".txt" onChange={handleFile} className="hidden" />
             <button
               onClick={() => fileRef.current?.click()}
@@ -593,6 +624,19 @@ export function ConversationIngest() {
               </ul>
             </details>
           )}
+
+          {/* Footer — leave without saving and start a fresh conversation. */}
+          <div className="flex items-center justify-between gap-3 pt-1">
+            <p className="text-xs text-slate-400">
+              Nothing is saved until you click “Create … as drafts” or “Add … to Behaviour”. You can leave the rest.
+            </p>
+            <button
+              onClick={resetAll}
+              className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 flex items-center gap-2"
+            >
+              <RotateCcw className="w-4 h-4" /> Discard &amp; start over
+            </button>
+          </div>
         </>
       )}
     </div>
