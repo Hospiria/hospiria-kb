@@ -1,4 +1,4 @@
-import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
 export type BotSection = 'principle' | 'person' | 'guardrail'
@@ -28,7 +28,7 @@ export async function GET() {
   const auth = await requireSuperAdmin()
   if (auth.error) return auth.error
 
-  const admin = createAdminClient()
+  const admin = createServiceClient()
   const { data, error } = await admin
     .from('bot_instructions')
     .select('id, section, content, sort_order, is_active')
@@ -65,7 +65,7 @@ export async function PUT(request: Request) {
     }))
     .filter((it: { content: string }) => it.content.length > 0)
 
-  const admin = createAdminClient()
+  const admin = createServiceClient()
 
   const { error: delError } = await admin.from('bot_instructions').delete().eq('section', section)
   if (delError) return NextResponse.json({ error: delError.message }, { status: 500 })

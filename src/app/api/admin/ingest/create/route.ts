@@ -1,6 +1,6 @@
 export const maxDuration = 60
 
-import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { markdownToTiptap } from '@/lib/markdownToTiptap'
 import { NextResponse } from 'next/server'
 
@@ -24,8 +24,9 @@ export async function POST(request: Request) {
   const items: NewSop[] = Array.isArray(body.items) ? body.items : []
   if (items.length === 0) return NextResponse.json({ success: true, created: 0 })
 
-  const admin = createAdminClient()
+  const admin = createServiceClient()
   const created: { id: string; title: string }[] = []
+  let lastError = ''
 
   for (const item of items) {
     const title = (item?.title ?? '').toString().trim()
@@ -40,7 +41,8 @@ export async function POST(request: Request) {
       .single()
 
     if (error || !sop) {
-      console.error('Ingest create SOP error:', error?.message, title)
+      lastError = error?.message ?? 'insert failed'
+      console.error('Ingest create SOP error:', lastError, title)
       continue
     }
 
@@ -53,6 +55,15 @@ export async function POST(request: Request) {
     }
 
     created.push({ id: sop.id, title: sop.title })
+  }
+
+  // If we were asked to create SOPs but none landed, that's a real failure —
+  // surface it instead of silently returning "created: 0".
+  if (created.length === 0) {
+    return NextResponse.json(
+      { error: lastError ? `Could not save SOPs: ${lastError}` : 'No SOPs were created (nothing had a title and body).' },
+      { status: 500 }
+    )
   }
 
   return NextResponse.json({ success: true, created: created.length, sops: created })
