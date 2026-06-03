@@ -1,6 +1,7 @@
 export const maxDuration = 60
 
 import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { requireFeature } from '@/lib/permissions-guard'
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { TiptapContent, TiptapNode } from '@/types'
@@ -24,7 +25,9 @@ function tiptapToText(content: TiptapContent | null): string {
 }
 
 export async function POST(request: Request) {
-  // Requires authenticated user (any role) — automation is triggered by the app itself
+  // Triggered by the app on SOP publish — requires SOP edit rights.
+  const auth = await requireFeature('sops', 'edit')
+  if ('error' in auth) return auth.error
   const supabase = createClient()
   const adminClient = createAdminClient()
   const { data: { user } } = await supabase.auth.getUser()

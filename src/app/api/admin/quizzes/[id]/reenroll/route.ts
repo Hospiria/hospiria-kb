@@ -1,13 +1,12 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { requireFeature } from '@/lib/permissions-guard'
 import { NextResponse } from 'next/server'
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
+  const authz = await requireFeature('quizzes', 'edit')
+  if ('error' in authz) return authz.error
   const supabase = createClient()
   const adminClient = createAdminClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-  if (!profile || profile.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const quizId = params.id
   const { userId, dueDays = 7 } = await request.json()
@@ -22,7 +21,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   // Create fresh enrollment (previous one stays for history)
   const { data: enrollment, error } = await adminClient
     .from('quiz_enrollments')
-    .insert({ quiz_id: quizId, user_id: userId, enrolled_by: user.id, due_date: dueDate.toISOString(), status: 'pending' })
+    .insert({ quiz_id: quizId, user_id: userId, enrolled_by: authz.userId, due_date: dueDate.toISOString(), status: 'pending' })
     .select('id')
     .single()
 

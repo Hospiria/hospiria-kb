@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { requireFeature } from '@/lib/permissions-guard'
 import { NextResponse } from 'next/server'
 
 async function fetchDocs(workspaceId: string, token: string, parentId?: string, parentType?: string) {
@@ -22,11 +22,8 @@ async function fetchDocs(workspaceId: string, token: string, parentId?: string, 
 }
 
 export async function GET(request: Request) {
-  const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-  if (!profile || profile.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const auth = await requireFeature('import_clickup', 'edit')
+  if ('error' in auth) return auth.error
 
   const token = request.headers.get('x-clickup-token')
   const { searchParams } = new URL(request.url)

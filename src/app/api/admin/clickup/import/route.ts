@@ -1,4 +1,5 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { requireFeature } from '@/lib/permissions-guard'
 import { markdownToTiptap } from '@/lib/markdownToTiptap'
 import { NextResponse } from 'next/server'
 
@@ -41,8 +42,8 @@ export async function POST(request: Request) {
   const adminClient = createAdminClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-  if (!profile || profile.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const auth = await requireFeature('import_clickup', 'edit')
+  if ('error' in auth) return auth.error
 
   const { token, workspaceId, docId, pages } = await request.json()
   if (!token || !workspaceId || !docId || !pages?.length) {

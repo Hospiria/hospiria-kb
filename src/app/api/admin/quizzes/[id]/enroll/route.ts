@@ -1,4 +1,5 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { requireFeature } from '@/lib/permissions-guard'
 import { NextResponse } from 'next/server'
 import { sendQuizAssignedEmail } from '@/lib/notifications/email'
 
@@ -7,8 +8,8 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const adminClient = createAdminClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-  if (!profile || profile.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const authz = await requireFeature('quizzes', 'edit')
+  if ('error' in authz) return authz.error
 
   const quizId = params.id
   const { userIds, dueDays = 7 } = await request.json()
@@ -77,8 +78,8 @@ export async function GET(request: Request, { params }: { params: { id: string }
   const adminClient = createAdminClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-  if (!profile || profile.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const authz = await requireFeature('quizzes', 'view')
+  if ('error' in authz) return authz.error
 
   const { data: rawEnrollments, error } = await adminClient
     .from('quiz_enrollments')
