@@ -1,6 +1,7 @@
 export const maxDuration = 60 // Allow up to 60s for AI generation
 
 import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { requireFeature } from '@/lib/permissions-guard'
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { TiptapContent, TiptapNode } from '@/types'
@@ -22,12 +23,10 @@ function tiptapToText(content: TiptapContent | null): string {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireFeature('quizzes', 'edit')
+  if ('error' in auth) return auth.error
   const supabase = createClient()
   const adminClient = createAdminClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-  if (!profile || profile.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { sopId, generateAll } = await request.json()
 

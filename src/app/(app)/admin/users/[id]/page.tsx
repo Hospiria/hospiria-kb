@@ -1,16 +1,12 @@
 export const dynamic = 'force-dynamic'
 
-import { createClient, createAdminClient } from '@/lib/supabase/server'
-import { redirect, notFound } from 'next/navigation'
+import { createAdminClient } from '@/lib/supabase/server'
+import { notFound } from 'next/navigation'
+import { requirePage } from '@/lib/permissions-guard'
 import { UserEditor } from '@/components/admin/UserEditor'
 
 export default async function EditUserPage({ params }: { params: { id: string } }) {
-  const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-  if (!profile || profile.role !== 'super_admin') redirect('/dashboard')
-
+  await requirePage('users', 'view')
   const admin = createAdminClient()
   const [{ data: target }, { data: teams }, { data: access }] = await Promise.all([
     admin.from('profiles').select('id, full_name, role, primary_team_id').eq('id', params.id).single(),

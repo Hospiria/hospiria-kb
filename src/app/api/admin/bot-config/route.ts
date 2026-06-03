@@ -1,4 +1,5 @@
-import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/server'
+import { requireFeature } from '@/lib/permissions-guard'
 import { NextResponse } from 'next/server'
 
 export type BotSection = 'principle' | 'person' | 'guardrail'
@@ -12,21 +13,10 @@ interface BotInstruction {
   is_active: boolean
 }
 
-async function requireSuperAdmin() {
-  const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-  if (!profile || profile.role !== 'super_admin') {
-    return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
-  }
-  return { userId: user.id }
-}
-
 // GET — return all instructions grouped by section
 export async function GET() {
-  const auth = await requireSuperAdmin()
-  if (auth.error) return auth.error
+  const auth = await requireFeature('ai_training', 'view')
+  if ('error' in auth) return auth.error
 
   const admin = createServiceClient()
   const { data, error } = await admin
@@ -49,8 +39,8 @@ export async function GET() {
 // We delete the section's rows and re-insert in order — simplest way to keep
 // the editor's add/remove/reorder in sync without per-row id juggling.
 export async function PUT(request: Request) {
-  const auth = await requireSuperAdmin()
-  if (auth.error) return auth.error
+  const auth = await requireFeature('ai_training', 'edit')
+  if ('error' in auth) return auth.error
 
   const body = await request.json().catch(() => ({}))
   const section = body.section as BotSection

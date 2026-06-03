@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
+import { requirePage } from '@/lib/permissions-guard'
 import { TiptapViewer } from '@/components/sops/TiptapViewer'
 import { ApprovalActions } from '@/components/sops/ApprovalActions'
 import { StatusBadge } from '@/components/ui/StatusBadge'
@@ -10,12 +11,13 @@ import { ChevronLeft } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils'
 
 export default async function ApproveSopPage({ params }: { params: { id: string } }) {
+  await requirePage('approve_sops', 'edit')
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
-  if (!profile || !['team_leader', 'approver', 'super_admin'].includes(profile.role)) redirect('/sops')
+  if (!profile) redirect('/login')
 
   const { data: sop } = await supabase
     .from('sops')

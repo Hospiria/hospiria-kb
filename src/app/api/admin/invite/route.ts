@@ -1,8 +1,12 @@
 import { createAdminClient } from '@/lib/supabase/server'
+import { requireFeature } from '@/lib/permissions-guard'
 import { NextResponse } from 'next/server'
 
 export async function POST(request: Request) {
   try {
+    const auth = await requireFeature('users', 'edit')
+    if ('error' in auth) return auth.error
+
     const { email, role, teamId, fullName, password } = await request.json()
 
     if (!email || !role || !password) {

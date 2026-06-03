@@ -1,6 +1,7 @@
 export const maxDuration = 60
 
 import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { requireFeature } from '@/lib/permissions-guard'
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { normaliseConversation } from '@/lib/whatsapp-parse'
@@ -56,11 +57,11 @@ const ADVICE_SECTIONS: AdviceSection[] = ['principle', 'person', 'guardrail']
 const MAX_ADVICE = 10
 
 export async function POST(request: Request) {
+  const auth = await requireFeature('ai_training', 'edit')
+  if ('error' in auth) return auth.error
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-  if (!profile || profile.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json({ error: 'AI is not configured (missing API key).' }, { status: 500 })

@@ -2,17 +2,19 @@ export const dynamic = 'force-dynamic'
 
 import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
+import { requirePage } from '@/lib/permissions-guard'
 import { SopEditor } from '@/components/sops/SopEditor'
 import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
 
 export default async function EditSopPage({ params }: { params: { id: string } }) {
+  await requirePage('sops', 'edit')
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
-  if (!profile || !['junior_team_leader', 'team_leader', 'approver', 'super_admin'].includes(profile.role)) redirect('/sops')
+  if (!profile) redirect('/login')
 
   const [
     { data: sop },

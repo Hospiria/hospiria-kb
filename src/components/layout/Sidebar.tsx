@@ -11,6 +11,7 @@ import {
   Briefcase, Layers, ChevronDown, Search, Library, Tag, Brain,
 } from 'lucide-react'
 import { useState } from 'react'
+import { FeatureKey, Perm } from '@/lib/permissions'
 
 interface Team { id: string; name: string }
 
@@ -20,15 +21,35 @@ interface SidebarProps {
   teams: Team[]
   companies: { id: string; name: string }[]
   platforms: { id: string; name: string }[]
+  perms: Record<FeatureKey, Perm>
 }
 
-export function Sidebar({ profile, teamName, teams, companies, platforms }: SidebarProps) {
+export function Sidebar({ profile, teamName, teams, companies, platforms, perms }: SidebarProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const activeTeam = searchParams.get('team')
   const activeCompany = searchParams.get('company')
   const activePlatform = searchParams.get('platform')
-  const isSuperAdmin = profile.role === 'super_admin'
+  const can = (feature: FeatureKey, level: 'view' | 'edit' = 'view') => {
+    const p = perms[feature]
+    if (!p) return false
+    return level === 'edit' ? p.edit : p.view || p.edit
+  }
+
+  // Admin nav items, each gated by a feature permission.
+  const adminNav: { label: string; href: string; icon: typeof Users; feature: FeatureKey; level: 'view' | 'edit' }[] = [
+    { label: 'Users & Permissions', href: '/admin/users', icon: Users, feature: 'users', level: 'view' },
+    { label: 'Teams & Categories', href: '/admin/teams', icon: Building2, feature: 'teams', level: 'view' },
+    { label: 'Companies', href: '/admin/companies', icon: Briefcase, feature: 'companies', level: 'view' },
+    { label: 'Platforms', href: '/admin/platforms', icon: Layers, feature: 'platforms', level: 'view' },
+    { label: 'Import SOPs', href: '/admin/import', icon: Upload, feature: 'import_sops', level: 'edit' },
+    { label: 'Import from ClickUp', href: '/admin/clickup', icon: PlugZap, feature: 'import_clickup', level: 'edit' },
+    { label: 'Manage SOPs', href: '/admin/sops', icon: ListChecks, feature: 'sops', level: 'edit' },
+    { label: 'Auto-tag SOPs', href: '/admin/auto-tag', icon: Tag, feature: 'autotag', level: 'edit' },
+    { label: 'AI Training', href: '/admin/ai-training', icon: Brain, feature: 'ai_training', level: 'view' },
+    { label: 'Manage Quizzes', href: '/admin/quizzes', icon: GraduationCap, feature: 'quizzes', level: 'edit' },
+  ]
+  const adminItems = adminNav.filter(item => can(item.feature, item.level))
 
   // Auto-expand if something in the section is currently active
   const [companiesOpen, setCompaniesOpen] = useState(() => !!activeCompany)
@@ -235,23 +256,12 @@ export function Sidebar({ profile, teamName, teams, companies, platforms }: Side
         )}
 
         {/* Admin */}
-        {isSuperAdmin && (
+        {adminItems.length > 0 && (
           <>
             <div className="pt-5 pb-2 px-2">
               <p className="text-white/55 text-[10px] font-bold uppercase tracking-[0.15em]">Admin</p>
             </div>
-            {[
-              { label: 'Users & Permissions', href: '/admin/users', icon: Users },
-              { label: 'Teams & Categories', href: '/admin/teams', icon: Building2 },
-              { label: 'Companies', href: '/admin/companies', icon: Briefcase },
-              { label: 'Platforms', href: '/admin/platforms', icon: Layers },
-              { label: 'Import SOPs', href: '/admin/import', icon: Upload },
-              { label: 'Import from ClickUp', href: '/admin/clickup', icon: PlugZap },
-              { label: 'Manage SOPs', href: '/admin/sops', icon: ListChecks },
-              { label: 'Auto-tag SOPs', href: '/admin/auto-tag', icon: Tag },
-              { label: 'AI Training', href: '/admin/ai-training', icon: Brain },
-              { label: 'Manage Quizzes', href: '/admin/quizzes', icon: GraduationCap },
-            ].map(item => (
+            {adminItems.map(item => (
               <NavItem key={item.href} href={item.href} icon={item.icon} label={item.label}
                 active={pathname.startsWith(item.href)} />
             ))}

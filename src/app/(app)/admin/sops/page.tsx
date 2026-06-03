@@ -1,14 +1,11 @@
 export const dynamic = 'force-dynamic'
 
 import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
-import { getEffectiveSession } from '@/lib/impersonation'
+import { requirePage } from '@/lib/permissions-guard'
 import { BulkSopManager } from '@/components/admin/BulkSopManager'
 
 export default async function AdminSopsPage() {
-  const session = await getEffectiveSession()
-  if (!session?.profile) redirect('/login')
-  if (session.profile.role !== 'super_admin') redirect('/dashboard')
+  await requirePage('sops', 'edit')
 
   const supabase = createClient()
 

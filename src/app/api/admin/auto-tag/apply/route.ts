@@ -1,6 +1,7 @@
 export const maxDuration = 60
 
 import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { requireFeature } from '@/lib/permissions-guard'
 import { NextResponse } from 'next/server'
 
 interface Assignment {
@@ -12,11 +13,9 @@ interface Assignment {
 // Idempotent: upserts on the (sop_id, company_id) primary key and ignores
 // duplicates, so re-applying the same set is a no-op.
 export async function POST(request: Request) {
+  const auth = await requireFeature('autotag', 'edit')
+  if ('error' in auth) return auth.error
   const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-  if (!profile || profile.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await request.json().catch(() => ({}))
   const assignments: Assignment[] = Array.isArray(body.assignments) ? body.assignments : []

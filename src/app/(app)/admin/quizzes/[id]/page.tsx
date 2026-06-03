@@ -1,18 +1,15 @@
 export const dynamic = 'force-dynamic'
 
-import { createAdminClient, createClient } from '@/lib/supabase/server'
-import { redirect, notFound } from 'next/navigation'
+import { createAdminClient } from '@/lib/supabase/server'
+import { notFound } from 'next/navigation'
+import { requirePage } from '@/lib/permissions-guard'
 import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
 import { QuizDetailClient } from '@/components/admin/QuizDetailClient'
 
 export default async function AdminQuizDetailPage({ params }: { params: { id: string } }) {
-  const supabase = createClient()
+  await requirePage('quizzes', 'edit')
   const adminClient = createAdminClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-  if (!profile || profile.role !== 'super_admin') redirect('/dashboard')
 
   const { data: quiz } = await adminClient
     .from('quizzes')

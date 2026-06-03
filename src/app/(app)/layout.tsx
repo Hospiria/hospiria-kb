@@ -2,8 +2,10 @@ export const dynamic = 'force-dynamic'
 
 import { redirect } from 'next/navigation'
 import { Suspense } from 'react'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { getEffectiveSession } from '@/lib/impersonation'
+import { getEffectivePermissions } from '@/lib/permissions-server'
+import { Role } from '@/types'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { Topbar } from '@/components/layout/Topbar'
 import { ImpersonationBanner } from '@/components/layout/ImpersonationBanner'
@@ -48,6 +50,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     supabase.from('platforms').select('id, name').eq('is_active', true).order('name'),
   ])
 
+  // Effective permissions for the current (impersonated-or-real) user — drives
+  // which nav items the sidebar shows.
+  const perms = await getEffectivePermissions(createServiceClient(), effectiveUserId, profile.role as Role)
+
   return (
     <div className="flex min-h-screen bg-slate-50">
       <Suspense fallback={<div className="w-64 bg-navy-900" />}>
@@ -57,6 +63,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           teams={teams}
           companies={companies ?? []}
           platforms={platforms ?? []}
+          perms={perms}
         />
       </Suspense>
       <div className="flex-1 ml-64 flex flex-col min-h-screen">
