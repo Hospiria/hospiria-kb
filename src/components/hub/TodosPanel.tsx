@@ -26,7 +26,7 @@ export function TodosPanel() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    try { const r = await fetch('/api/todos'); if (r.ok) setTodos((await r.json()).todos ?? []) } finally { setLoading(false) }
+    try { const r = await fetch('/api/todos?space=personal'); if (r.ok) setTodos((await r.json()).todos ?? []) } finally { setLoading(false) }
   }, [])
   useEffect(() => {
     load()

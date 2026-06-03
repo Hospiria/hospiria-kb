@@ -4,17 +4,17 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Plus, Pin, PinOff, Trash2, Share2, Users, ArrowLeft,
   Circle, Sparkles, Loader2, Calendar, ChevronDown,
-  StickyNote, ListChecks, Check, X,
+  StickyNote, ListChecks, Check, X, Lock, Globe,
 } from 'lucide-react'
 import { MentionTextarea } from './MentionTextarea'
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Person { id: string; full_name: string | null }
 interface Team   { id: string; name: string }
 interface Note {
   id: string; title: string; body: string; color: string | null; pinned: boolean
-  updated_at: string; mine: boolean; canEdit: boolean; shared: boolean
+  updated_at: string; team_id: string | null; mine: boolean; canEdit: boolean; shared: boolean
 }
 interface Todo {
   id: string; owner_id: string; assignee_id: string | null; team_id: string | null
@@ -24,6 +24,7 @@ interface Todo {
   assigneeName: string | null; teamName: string | null
 }
 
+type Space = 'personal' | string  // 'personal' or a team id
 type Tab = 'notes' | 'todos'
 
 const PRIORITY_COLOR: Record<string, string> = {
@@ -32,11 +33,12 @@ const PRIORITY_COLOR: Record<string, string> = {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
-export function NotesPageClient({ currentUserId, people, teams }: {
+export function NotesPageClient({ currentUserId, people, myTeams }: {
   currentUserId: string
   people: Person[]
-  teams: Team[]
+  myTeams: Team[]
 }) {
+  const [space, setSpace] = useState<Space>('personal')
   const [tab, setTab] = useState<Tab>('notes')
   const [notes, setNotes] = useState<Note[]>([])
   const [todos, setTodos] = useState<Todo[]>([])
@@ -45,41 +47,46 @@ export function NotesPageClient({ currentUserId, people, teams }: {
   const [activeNote, setActiveNote] = useState<Note | null>(null)
   const [error, setError] = useState('')
 
+  const qs = space === 'personal' ? '?space=personal' : `?teamId=${space}`
+
   const loadNotes = useCallback(async () => {
-    setLoadingNotes(true)
+    setLoadingNotes(true); setError('')
     try {
-      const r = await fetch('/api/notes')
+      const r = await fetch(`/api/notes${qs}`)
       if (r.ok) setNotes((await r.json()).notes ?? [])
-      else setError('Could not load notes.')
+      else { const d = await r.json().catch(() => ({})); setError(d.error ?? 'Could not load notes.') }
     } finally { setLoadingNotes(false) }
-  }, [])
+  }, [qs])
 
   const loadTodos = useCallback(async () => {
     setLoadingTodos(true)
     try {
-      const r = await fetch('/api/todos')
+      const r = await fetch(`/api/todos${qs}`)
       if (r.ok) setTodos((await r.json()).todos ?? [])
     } finally { setLoadingTodos(false) }
-  }, [])
+  }, [qs])
 
   useEffect(() => { loadNotes(); loadTodos() }, [loadNotes, loadTodos])
 
   async function createNote() {
     setError('')
+    const teamId = space === 'personal' ? null : space
     const r = await fetch('/api/notes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: '', body: '' }),
+      body: JSON.stringify({ title: '', body: '', teamId }),
     })
     if (r.ok) {
       const n = (await r.json()).note as Note
-      setNotes(prev => [n, ...prev])
-      setActiveNote(n)
+      setNotes(prev => [n, ...prev]); setActiveNote(n)
     } else {
       const d = await r.json().catch(() => ({}))
-      setError(d.error ?? 'Could not create note — make sure migration 011 has been run in Supabase.')
+      setError(d.error ?? 'Could not create note — make sure migration 012 has been run.')
     }
   }
+
+  const activeTeam = myTeams.find(t => t.id === space) ?? null
+  const isTeamSpace = space !== 'personal'
 
   if (activeNote) {
     return (
@@ -87,6 +94,7 @@ export function NotesPageClient({ currentUserId, people, teams }: {
         note={activeNote}
         people={people}
         currentUserId={currentUserId}
+        isTeamNote={isTeamSpace}
         onBack={() => { setActiveNote(null); loadNotes() }}
         onChanged={loadNotes}
       />
@@ -95,72 +103,93 @@ export function NotesPageClient({ currentUserId, people, teams }: {
 
   return (
     <div className="max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-navy-700">Notes &amp; To-dos</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Your personal workspace — notes, tasks, and what the team has shared with you.</p>
+          <p className="text-sm text-gray-500 mt-0.5">Your workspace — personal and team.</p>
         </div>
         {tab === 'notes' && (
           <button onClick={createNote} className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white text-sm font-semibold rounded-lg hover:bg-teal-700">
             <Plus className="w-4 h-4" /> New note
           </button>
         )}
-        {tab === 'todos' && (
-          <span className="text-xs text-gray-400">Use the quick-add box below</span>
-        )}
       </div>
 
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-4">{error}</p>}
 
+      {/* Space switcher */}
+      <div className="flex flex-wrap items-center gap-2 mb-5">
+        <SpaceBtn active={space === 'personal'} onClick={() => setSpace('personal')}>
+          <Lock className="w-3.5 h-3.5" /> Personal
+        </SpaceBtn>
+        {myTeams.map(t => (
+          <SpaceBtn key={t.id} active={space === t.id} onClick={() => setSpace(t.id)}>
+            <Globe className="w-3.5 h-3.5" /> {t.name}
+          </SpaceBtn>
+        ))}
+      </div>
+
+      {/* Space description */}
+      <p className="text-xs text-gray-400 mb-4 -mt-2">
+        {isTeamSpace
+          ? `Team space — everyone on ${activeTeam?.name ?? 'this team'} can see and edit these notes and to-dos.`
+          : 'Personal space — only you can see these unless you share or assign them.'}
+      </p>
+
+      {/* Content tabs */}
       <div className="inline-flex rounded-xl border border-gray-200 bg-white p-1 mb-5">
         <TabBtn active={tab === 'notes'} onClick={() => setTab('notes')}><StickyNote className="w-4 h-4" /> Notes</TabBtn>
         <TabBtn active={tab === 'todos'} onClick={() => setTab('todos')}><ListChecks className="w-4 h-4" /> To-dos</TabBtn>
       </div>
 
       {tab === 'notes' && (
-        loadingNotes
-          ? <SpinnerRow />
-          : notes.length === 0
-            ? <Empty label="No notes yet. Click 'New note' to get started." />
-            : <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {notes.map(n => (
-                  <button
-                    key={n.id}
-                    onClick={() => setActiveNote(n)}
-                    className="text-left bg-white border border-gray-200 rounded-2xl p-4 hover:border-teal-400 hover:shadow-sm transition-all group"
-                    style={n.color ? { borderTop: `3px solid ${n.color}` } : undefined}
-                  >
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <p className="text-sm font-semibold text-navy-700 truncate group-hover:text-teal-700">{n.title || 'Untitled'}</p>
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        {n.pinned && <Pin className="w-3.5 h-3.5 text-amber-500" />}
-                        {n.shared && <span title="Shared with you"><Users className="w-3.5 h-3.5 text-teal-400" /></span>}
-                      </div>
-                    </div>
-                    {n.body && <p className="text-xs text-gray-500 line-clamp-3 whitespace-pre-wrap leading-relaxed">{n.body.slice(0, 200)}</p>}
-                    <p className="text-[10px] text-gray-300 mt-2">{new Date(n.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>
-                  </button>
-                ))}
-              </div>
+        loadingNotes ? <SpinnerRow /> :
+        notes.length === 0 ? (
+          <Empty label={isTeamSpace ? `No team notes yet. Click 'New note' to create one.` : `No personal notes yet. Click 'New note' to get started.`} />
+        ) : (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {notes.map(n => (
+              <button
+                key={n.id}
+                onClick={() => setActiveNote(n)}
+                className="text-left bg-white border border-gray-200 rounded-2xl p-4 hover:border-teal-400 hover:shadow-sm transition-all group"
+                style={n.color ? { borderTop: `3px solid ${n.color}` } : undefined}
+              >
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <p className="text-sm font-semibold text-navy-700 truncate group-hover:text-teal-700">{n.title || 'Untitled'}</p>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {n.pinned && <Pin className="w-3.5 h-3.5 text-amber-500" />}
+                    {n.shared && <span title="Shared with you"><Users className="w-3.5 h-3.5 text-teal-400" /></span>}
+                  </div>
+                </div>
+                {n.body && <p className="text-xs text-gray-500 line-clamp-3 whitespace-pre-wrap leading-relaxed">{n.body.slice(0, 200)}</p>}
+                <p className="text-[10px] text-gray-300 mt-2">{new Date(n.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>
+              </button>
+            ))}
+          </div>
+        )
       )}
 
       {tab === 'todos' && (
         <TodosSection
           todos={todos}
           people={people}
-          teams={teams}
+          teams={myTeams}
+          currentTeamId={isTeamSpace ? space : null}
           onRefresh={loadTodos}
           loading={loadingTodos}
+          space={space}
         />
       )}
     </div>
   )
 }
 
-// ─── Note editor with @mentions ───────────────────────────────────────────────
+// ─── Note editor ──────────────────────────────────────────────────────────────
 
-function NoteEditor({ note, people, currentUserId, onBack, onChanged }: {
-  note: Note; people: Person[]; currentUserId: string
+function NoteEditor({ note, people, currentUserId, isTeamNote, onBack, onChanged }: {
+  note: Note; people: Person[]; currentUserId: string; isTeamNote: boolean
   onBack: () => void; onChanged: () => void
 }) {
   const [title, setTitle] = useState(note.title)
@@ -175,9 +204,7 @@ function NoteEditor({ note, people, currentUserId, onBack, onChanged }: {
   const save = useCallback(async (patch: Record<string, unknown>) => {
     setSaved(false); setSaveError('')
     const r = await fetch(`/api/notes/${note.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
     })
     if (r.ok) { setSaved(true); onChanged() }
     else { setSaveError('Save failed.'); setSaved(true) }
@@ -199,37 +226,35 @@ function NoteEditor({ note, people, currentUserId, onBack, onChanged }: {
     <div className="max-w-3xl mx-auto">
       <div className="flex items-center justify-between mb-4">
         <button onClick={onBack} className="text-sm text-gray-500 hover:text-navy-700 flex items-center gap-1.5">
-          <ArrowLeft className="w-4 h-4" /> All notes
+          <ArrowLeft className="w-4 h-4" /> Notes
         </button>
         <div className="flex items-center gap-2">
+          {isTeamNote && (
+            <span className="text-xs text-teal-600 bg-teal-50 border border-teal-200 rounded-full px-2.5 py-0.5 flex items-center gap-1">
+              <Globe className="w-3 h-3" /> Team note
+            </span>
+          )}
           <span className="text-xs text-gray-400">{saveError ? <span className="text-red-500">{saveError}</span> : saved ? 'Saved' : 'Saving…'}</span>
           {!readOnly && <button onClick={togglePin} title={pinned ? 'Unpin' : 'Pin'} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">{pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}</button>}
-          {note.mine && <button onClick={() => setShowShare(s => !s)} title="Share" className={`p-1.5 rounded-lg hover:bg-gray-100 ${showShare ? 'text-teal-600 bg-teal-50' : 'text-gray-500'}`}><Share2 className="w-4 h-4" /></button>}
-          {note.mine && <button onClick={del} title="Delete" className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>}
+          {!isTeamNote && note.mine && <button onClick={() => setShowShare(s => !s)} title="Share" className={`p-1.5 rounded-lg hover:bg-gray-100 ${showShare ? 'text-teal-600 bg-teal-50' : 'text-gray-500'}`}><Share2 className="w-4 h-4" /></button>}
+          {(note.mine || isTeamNote) && <button onClick={del} title="Delete" className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>}
         </div>
       </div>
 
-      {showShare && note.mine && <SharePanel noteId={note.id} people={people} currentUserId={currentUserId} />}
+      {showShare && !isTeamNote && note.mine && <SharePanel noteId={note.id} people={people} currentUserId={currentUserId} />}
 
       <div className="bg-white border border-gray-200 rounded-2xl p-6">
         <input
-          value={title}
-          disabled={readOnly}
+          value={title} disabled={readOnly}
           onChange={e => { setTitle(e.target.value); triggerSave({ title: e.target.value }) }}
           placeholder="Note title"
           className="w-full text-2xl font-bold text-navy-700 border-0 outline-none mb-4 bg-transparent placeholder:text-gray-300"
         />
         <MentionTextarea
-          value={body}
-          disabled={readOnly}
-          people={people}
-          minRows={12}
-          placeholder="Write anything… type @ to mention someone"
+          value={body} disabled={readOnly} people={people} minRows={12}
+          placeholder={isTeamNote ? 'Write for your team… type @ to mention someone' : 'Write anything… type @ to mention someone'}
           onChange={val => { setBody(val); triggerSave({ body: val }) }}
-          onMention={(person, newVal) => {
-            setBody(newVal)
-            save({ body: newVal, mentionedUserId: person.id })
-          }}
+          onMention={(person, newVal) => { setBody(newVal); save({ body: newVal, mentionedUserId: person.id }) }}
         />
         {readOnly && <p className="text-xs text-gray-400 italic mt-2 pt-2 border-t border-gray-100">Shared with you (view only).</p>}
       </div>
@@ -237,7 +262,7 @@ function NoteEditor({ note, people, currentUserId, onBack, onChanged }: {
   )
 }
 
-// ─── Share panel ──────────────────────────────────────────────────────────────
+// ─── Share panel (personal notes only) ───────────────────────────────────────
 
 function SharePanel({ noteId, people, currentUserId }: { noteId: string; people: Person[]; currentUserId: string }) {
   const [shares, setShares] = useState<{ user_id: string; can_edit: boolean; profiles?: { full_name: string | null } | null }[]>([])
@@ -265,7 +290,7 @@ function SharePanel({ noteId, people, currentUserId }: { noteId: string; people:
 
   return (
     <div className="bg-white border border-teal-200 rounded-2xl p-4 mb-4">
-      <p className="text-sm font-semibold text-navy-700 mb-3 flex items-center gap-2"><Users className="w-4 h-4 text-teal-500" /> Share this note</p>
+      <p className="text-sm font-semibold text-navy-700 mb-3 flex items-center gap-2"><Lock className="w-4 h-4 text-teal-500" /> Share this note</p>
       {shares.length > 0 && (
         <div className="space-y-1.5 mb-3">
           {shares.map(s => (
@@ -295,9 +320,10 @@ function SharePanel({ noteId, people, currentUserId }: { noteId: string; people:
 
 // ─── To-dos section ───────────────────────────────────────────────────────────
 
-function TodosSection({ todos, people, teams, onRefresh, loading }: {
+function TodosSection({ todos, people, teams, currentTeamId, onRefresh, loading, space }: {
   todos: Todo[]; people: Person[]; teams: Team[]
-  onRefresh: () => void; loading: boolean
+  currentTeamId: string | null; onRefresh: () => void
+  loading: boolean; space: Space
 }) {
   const [input, setInput] = useState('')
   const [adding, setAdding] = useState(false)
@@ -312,7 +338,11 @@ function TodosSection({ todos, people, teams, onRefresh, loading }: {
       const d = await r.json()
       if (!r.ok) { setAddError(d.error ?? 'Could not parse that.'); return }
       const draft = d.draft
-      const c = await fetch('/api/todos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: draft.title, detail: draft.detail, dueDate: draft.dueDate, priority: draft.priority, assigneeId: draft.assigneeId }) })
+      // If in team space, create as team todo
+      const c = await fetch('/api/todos', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: draft.title, detail: draft.detail, dueDate: draft.dueDate, priority: draft.priority, assigneeId: draft.assigneeId, teamId: currentTeamId }),
+      })
       if (c.ok) { setInput(''); onRefresh() }
       else setAddError((await c.json()).error ?? 'Could not save.')
     } catch { setAddError('Network error.') } finally { setAdding(false) }
@@ -328,19 +358,16 @@ function TodosSection({ todos, people, teams, onRefresh, loading }: {
 
   return (
     <div className="space-y-4">
-      {/* AI capture bar */}
       <div className="bg-white border border-gray-200 rounded-2xl p-4">
         <div className="flex items-end gap-3">
           <div className="flex-1">
             <textarea
-              value={input}
-              onChange={e => setInput(e.target.value)}
+              value={input} onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); add() } }}
-              rows={2}
-              placeholder="e.g. chase Sonali about 306 tomorrow morning — high priority"
+              rows={2} placeholder={currentTeamId ? `Add a team task… e.g. "update check-in instructions by Friday"` : `Add a task… e.g. "chase Sonali about 306 tomorrow — high priority"`}
               className="w-full resize-none text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-teal-500"
             />
-            <p className="text-[11px] text-gray-400 mt-1">Press Enter or click Add — I&apos;ll set the date, priority and assignee for you.</p>
+            <p className="text-[11px] text-gray-400 mt-1">Press Enter or click Add — AI fills in date, priority and assignee.</p>
           </div>
           <button onClick={add} disabled={!input.trim() || adding} className="h-10 px-4 flex-shrink-0 rounded-xl bg-teal-600 text-white text-sm font-medium flex items-center gap-2 hover:bg-teal-700 disabled:opacity-40">
             {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Add
@@ -351,7 +378,9 @@ function TodosSection({ todos, people, teams, onRefresh, loading }: {
 
       {loading ? <SpinnerRow /> : (
         <>
-          {open.length === 0 && done.length === 0 && <Empty label="No to-dos yet. Add one above." />}
+          {open.length === 0 && done.length === 0 && (
+            <Empty label={currentTeamId ? 'No team to-dos yet. Add one above.' : 'No personal to-dos. Add one above.'} />
+          )}
           {open.length > 0 && (
             <div className="space-y-2">
               {open.map(t => <TodoRow key={t.id} t={t} people={people} teams={teams} expanded={expanded === t.id} onExpand={() => setExpanded(expanded === t.id ? null : t.id)} onToggle={() => patch(t.id, { status: 'done' })} onPatch={b => patch(t.id, b)} onDelete={() => del(t.id)} />)}
@@ -413,7 +442,7 @@ function TodoRow({ t, people, teams, expanded, onExpand, onToggle, onPatch, onDe
           </label>
           <label className="block text-xs text-gray-500">Team list
             <select value={t.team_id ?? ''} onChange={e => onPatch({ teamId: e.target.value || null })} className="w-full mt-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white">
-              <option value="">None (personal)</option>
+              <option value="">Personal</option>
               {teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
             </select>
           </label>
@@ -426,8 +455,15 @@ function TodoRow({ t, people, teams, expanded, onExpand, onToggle, onPatch, onDe
   )
 }
 
-// ─── Small helpers ────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function SpaceBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick} className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors ${active ? 'bg-navy-700 text-white border-navy-700' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}>
+      {children}
+    </button>
+  )
+}
 function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button onClick={onClick} className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${active ? 'bg-teal-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
@@ -438,5 +474,5 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
 function SpinnerRow() { return <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-gray-300" /></div> }
 function Empty({ label }: { label: string }) { return <p className="text-center text-sm text-gray-400 py-16 bg-white border border-dashed border-gray-200 rounded-2xl">{label}</p> }
 
-// re-export tiny ones for hub use
+// re-export for hub use
 export { SharePanel }

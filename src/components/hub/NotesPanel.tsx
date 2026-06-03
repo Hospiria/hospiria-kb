@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Plus, Trash2, Pin, PinOff, ArrowLeft, Users, Loader2, Check, Share2, X } from 'lucide-react'
+import { Plus, Trash2, Pin, PinOff, ArrowLeft, Users, Loader2, Check, Share2, X, ExternalLink } from 'lucide-react'
+import Link from 'next/link'
 import { MentionTextarea } from '@/components/notes/MentionTextarea'
 
 interface Note {
@@ -20,7 +21,8 @@ export function NotesPanel() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    try { const r = await fetch('/api/notes'); if (r.ok) setNotes((await r.json()).notes ?? []) } finally { setLoading(false) }
+    // Hub always shows personal notes only; use full page for team spaces
+    try { const r = await fetch('/api/notes?space=personal'); if (r.ok) setNotes((await r.json()).notes ?? []) } finally { setLoading(false) }
   }, [])
 
   useEffect(() => {
@@ -59,12 +61,13 @@ export function NotesPanel() {
         </button>
       </div>
       {createError && <p className="text-xs text-red-500 px-3 py-2 bg-red-50 border-b border-red-100">{createError}</p>}
-      <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-slate-50">
+      <div className="relative flex-1 overflow-y-auto p-3 space-y-2 bg-slate-50">
         {loading
           ? <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-gray-300" /></div>
           : notes.length === 0
             ? <p className="text-center text-sm text-gray-400 py-10">No notes yet. Create one to get started.</p>
-            : notes.map(n => (
+            : <>
+              {notes.map(n => (
               <button key={n.id} onClick={() => setActive(n)}
                 className="w-full text-left bg-white border border-gray-200 rounded-xl p-3 hover:border-teal-300 transition-colors"
                 style={n.color ? { borderLeft: `3px solid ${n.color}` } : undefined}>
@@ -78,6 +81,10 @@ export function NotesPanel() {
                 {n.body && <p className="text-xs text-gray-500 mt-1 line-clamp-2 whitespace-pre-wrap">{n.body.slice(0, 160)}</p>}
               </button>
             ))}
+              <Link href="/notes" className="flex items-center justify-center gap-1.5 text-xs text-gray-400 hover:text-teal-600 py-2 mt-1">
+                <ExternalLink className="w-3 h-3" /> Open full notes &amp; team spaces
+              </Link>
+            </>}
       </div>
     </div>
   )

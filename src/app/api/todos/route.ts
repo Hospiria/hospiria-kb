@@ -9,18 +9,30 @@ interface TodoRow {
   updated_at: string; created_at: string
 }
 
-// GET — to-dos I own, am assigned, or that belong to a team I can access.
-export async function GET() {
+// GET — to-dos filtered by space.
+//   ?space=personal  → todos where team_id IS NULL (mine + assigned to me)
+//   ?teamId=<uuid>   → todos for that team
+//   (no param)       → all visible todos (RLS scopes)
+export async function GET(request: Request) {
   const auth = await requireFeature('notes', 'view')
   if ('error' in auth) return auth.error
   const supabase = createClient()
 
-  const { data, error } = await supabase
+  const { searchParams } = new URL(request.url)
+  const space = searchParams.get('space')
+  const teamId = searchParams.get('teamId')
+
+  let query = supabase
     .from('todos')
     .select('id, owner_id, assignee_id, team_id, title, detail, due_date, priority, status, updated_at, created_at')
     .order('status', { ascending: true })
     .order('due_date', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: false })
+
+  if (space === 'personal') query = query.is('team_id', null)
+  else if (teamId) query = query.eq('team_id', teamId)
+
+  const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   const rows = (data ?? []) as TodoRow[]

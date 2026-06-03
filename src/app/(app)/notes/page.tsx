@@ -10,19 +10,37 @@ export default async function NotesPage() {
   if (!session?.profile) redirect('/login')
 
   const supabase = createClient()
-
-  // Teams and people for @mention + assignee pickers.
   const db = createServiceClient()
-  const [{ data: people }, { data: teams }] = await Promise.all([
-    db.from('profiles').select('id, full_name').order('full_name'),
-    supabase.from('teams').select('id, name').order('name'),
-  ])
+
+  const { effectiveUserId, profile } = session
+
+  // People for @mention / assignee pickers.
+  const { data: people } = await db.from('profiles').select('id, full_name').order('full_name')
+
+  // User's accessible teams — used for the team-space switcher.
+  // Approvers and super_admins see all teams; others see their own.
+  let myTeams: { id: string; name: string }[] = []
+  if (['approver', 'super_admin'].includes(profile.role)) {
+    const { data } = await supabase.from('teams').select('id, name').order('name')
+    myTeams = (data ?? []) as { id: string; name: string }[]
+  } else {
+    // Primary team + cross-team access
+    const [{ data: all }, { data: access }] = await Promise.all([
+      supabase.from('teams').select('id, name').order('name'),
+      supabase.from('team_access').select('team_id').eq('user_id', effectiveUserId),
+    ])
+    const accessIds = new Set([
+      profile.primary_team_id,
+      ...((access ?? []) as { team_id: string }[]).map(a => a.team_id),
+    ].filter(Boolean))
+    myTeams = ((all ?? []) as { id: string; name: string }[]).filter(t => accessIds.has(t.id))
+  }
 
   return (
     <NotesPageClient
-      currentUserId={session.effectiveUserId}
+      currentUserId={effectiveUserId}
       people={(people ?? []) as { id: string; full_name: string | null }[]}
-      teams={(teams ?? []) as { id: string; name: string }[]}
+      myTeams={myTeams}
     />
   )
 }
