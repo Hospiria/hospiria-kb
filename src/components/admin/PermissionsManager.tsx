@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, forwardRef, useImperativeHandle, type ReactNode } from 'react'
 import { Loader2, Save, Lock, Info } from 'lucide-react'
 import {
   FEATURES, FeatureKey, Perm, ROLES, ROLE_LABEL, FEATURE_BY_KEY,
@@ -131,7 +131,10 @@ function RoleRow({ feature, perm, onChange }: { feature: FeatureKey; perm: Perm;
 // ---------------------------------------------------------------------------
 // PER-USER overrides editor (embedded under a user row)
 // ---------------------------------------------------------------------------
-export function UserPermissionsEditor({ userId, role }: { userId: string; role: Role }) {
+export interface UserPermsHandle { save: () => Promise<boolean> }
+
+export const UserPermissionsEditor = forwardRef<UserPermsHandle, { userId: string; role: Role; hideSaveBar?: boolean }>(
+function UserPermissionsEditor({ userId, role, hideSaveBar }, ref) {
   const [rolePerms, setRolePerms] = useState<Record<FeatureKey, Perm> | null>(null)
   const [overrides, setOverrides] = useState<Partial<Record<FeatureKey, OverrideState>>>({})
   const [loading, setLoading] = useState(true)
@@ -161,7 +164,8 @@ export function UserPermissionsEditor({ userId, role }: { userId: string; role: 
 
   useEffect(() => { if (!isSuperAdmin) load() }, [load, isSuperAdmin])
 
-  async function save() {
+  const save = useCallback(async (): Promise<boolean> => {
+    if (role === 'super_admin') return true
     setSaving(true); setMessage('')
     try {
       const items = (Object.entries(overrides) as [FeatureKey, OverrideState][])
@@ -179,12 +183,16 @@ export function UserPermissionsEditor({ userId, role }: { userId: string; role: 
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Save failed')
       setMessage('Saved.')
+      return true
     } catch (e) {
       setMessage(e instanceof Error ? e.message : 'Save failed')
+      return false
     } finally {
       setSaving(false)
     }
-  }
+  }, [overrides, userId, role])
+
+  useImperativeHandle(ref, () => ({ save }), [save])
 
   if (isSuperAdmin) return <LockedNote />
   if (loading || !rolePerms) return <Loading />
@@ -206,21 +214,25 @@ export function UserPermissionsEditor({ userId, role }: { userId: string; role: 
           onChange={state => setOverrides(prev => ({ ...prev, [f.key]: state }))}
         />
       )} />
-      <div className="flex items-center gap-3">
-        <button
-          onClick={save}
-          disabled={saving}
-          className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white text-sm font-semibold rounded-lg hover:bg-teal-700 disabled:opacity-50"
-        >
-          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          Save permissions
-        </button>
+      {hideSaveBar ? (
         <span className="text-xs text-gray-400">{overrideCount} override{overrideCount === 1 ? '' : 's'}</span>
-        {message && <span className="text-sm text-teal-600 font-medium">{message}</span>}
-      </div>
+      ) : (
+        <div className="flex items-center gap-3">
+          <button
+            onClick={save}
+            disabled={saving}
+            className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white text-sm font-semibold rounded-lg hover:bg-teal-700 disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Save permissions
+          </button>
+          <span className="text-xs text-gray-400">{overrideCount} override{overrideCount === 1 ? '' : 's'}</span>
+          {message && <span className="text-sm text-teal-600 font-medium">{message}</span>}
+        </div>
+      )}
     </div>
   )
-}
+})
 
 function PersonRow({ feature, inherited, state, onChange }: {
   feature: FeatureKey

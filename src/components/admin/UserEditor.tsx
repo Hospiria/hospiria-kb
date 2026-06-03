@@ -1,13 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ChevronLeft, Save, Shield, ShieldCheck } from 'lucide-react'
+import { ChevronLeft, Save, Shield, ShieldCheck, Loader2 } from 'lucide-react'
 import { Profile, Team, Role } from '@/types'
 import { RoleBadge } from '@/components/ui/StatusBadge'
-import { UserPermissionsEditor } from './PermissionsManager'
+import { UserPermissionsEditor, type UserPermsHandle } from './PermissionsManager'
 
 interface Props {
   user: Pick<Profile, 'id' | 'full_name' | 'role' | 'primary_team_id'>
@@ -24,16 +24,21 @@ export function UserEditor({ user, teams, teamAccessTeamIds }: Props) {
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
   const [access, setAccess] = useState<Set<string>>(new Set(teamAccessTeamIds))
+  const permsRef = useRef<UserPermsHandle>(null)
 
-  async function saveProfile() {
+  // One Save for the whole page: persist profile + permissions together, then
+  // refresh so what's on screen is exactly what's stored.
+  async function saveAll() {
     setSaving(true); setMsg('')
     const { error } = await supabase
       .from('profiles')
       .update({ full_name: name || null, role, primary_team_id: teamId || null })
       .eq('id', user.id)
+    const permsOk = await (permsRef.current?.save() ?? Promise.resolve(true))
     setSaving(false)
     if (error) { setMsg(error.message); return }
-    setMsg('Saved.')
+    if (!permsOk) { setMsg('Profile saved, but permissions failed — try again.'); return }
+    setMsg('All changes saved.')
     router.refresh()
   }
 
@@ -56,13 +61,25 @@ export function UserEditor({ user, teams, teamAccessTeamIds }: Props) {
         <ChevronLeft className="w-4 h-4" /> Back to Users
       </Link>
 
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-navy-700 flex items-center justify-center flex-shrink-0">
-          <span className="text-white text-sm font-semibold">{(user.full_name ?? 'U')[0].toUpperCase()}</span>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-full bg-navy-700 flex items-center justify-center flex-shrink-0">
+            <span className="text-white text-sm font-semibold">{(user.full_name ?? 'U')[0].toUpperCase()}</span>
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold text-navy-700 truncate">{user.full_name ?? '—'}</h1>
+            <div className="mt-0.5"><RoleBadge role={user.role} /></div>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold text-navy-700">{user.full_name ?? '—'}</h1>
-          <div className="mt-0.5"><RoleBadge role={user.role} /></div>
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {msg && <span className="text-sm text-teal-600 font-medium">{msg}</span>}
+          <button
+            onClick={saveAll}
+            disabled={saving}
+            className="flex items-center gap-2 px-5 py-2.5 bg-teal-600 text-white text-sm font-semibold rounded-lg hover:bg-teal-700 disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save changes
+          </button>
         </div>
       </div>
 
@@ -92,15 +109,9 @@ export function UserEditor({ user, teams, teamAccessTeamIds }: Props) {
             </select>
           </label>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <button onClick={saveProfile} disabled={saving} className="flex items-center gap-2 px-4 py-2 bg-navy-700 text-white text-sm font-medium rounded-lg hover:bg-navy-800 transition-colors disabled:opacity-50">
-            <Save className="w-4 h-4" /> {saving ? 'Saving…' : 'Save profile'}
-          </button>
-          {msg && <span className="text-sm text-teal-600 font-medium">{msg}</span>}
-          {role !== user.role && (
-            <span className="text-xs text-amber-600">Save to apply the new role — the permissions below inherit from the saved role.</span>
-          )}
-        </div>
+        {role !== user.role && (
+          <p className="text-xs text-amber-600">Changing the role — click &ldquo;Save changes&rdquo; above to apply it. The permissions below inherit from the saved role.</p>
+        )}
       </div>
 
       {/* Cross-team access */}
@@ -137,8 +148,8 @@ export function UserEditor({ user, teams, teamAccessTeamIds }: Props) {
       {/* Permissions */}
       <div className="bg-white border border-gray-200 rounded-2xl p-6">
         <h2 className="font-semibold text-navy-700 mb-1 flex items-center gap-2"><ShieldCheck className="w-4 h-4" /> Permissions</h2>
-        <p className="text-sm text-gray-500 mb-4">What this person can view and edit. Leave a feature on &ldquo;Inherit&rdquo; to follow their role.</p>
-        <UserPermissionsEditor userId={user.id} role={user.role as Role} />
+        <p className="text-sm text-gray-500 mb-4">What this person can view and edit. Leave a feature on &ldquo;Inherit&rdquo; to follow their role. Saved with &ldquo;Save changes&rdquo; above.</p>
+        <UserPermissionsEditor ref={permsRef} userId={user.id} role={user.role as Role} hideSaveBar />
       </div>
     </div>
   )

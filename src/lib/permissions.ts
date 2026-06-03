@@ -35,6 +35,12 @@ export interface FeatureDef {
 }
 
 // The rows shown in the permission grid, in display order.
+//
+// ⚠️ MAINTENANCE RULE: whenever you add a new feature or admin area to the app
+// (a new page, admin section, or capability), ADD A ROW HERE and set its
+// defaults in DEFAULT_ROLE_PERMISSIONS below. A feature that isn't listed here
+// is invisible to the permission system and (in later phases) cannot be
+// granted or restricted. Keep this catalogue in sync with the app.
 export const FEATURES: FeatureDef[] = [
   { key: 'dashboard', label: 'Dashboard', group: 'Core', hasView: true, hasEdit: false, viewHint: 'See the dashboard' },
   { key: 'chat', label: 'Chat assistant', group: 'Core', hasView: true, hasEdit: false, viewHint: 'Use the assistant' },
