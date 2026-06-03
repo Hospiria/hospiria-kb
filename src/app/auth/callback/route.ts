@@ -10,11 +10,13 @@ export async function GET(request: Request) {
 
   const supabase = createClient()
 
-  // OAuth / magic-link code exchange
+  // OAuth / magic-link / recovery code exchange
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (!error) {
-      return NextResponse.redirect(`${origin}${next}`)
+      // If this was a recovery/setup link, send them to the set-password page
+      const destination = type === 'recovery' ? '/auth/set-password' : next
+      return NextResponse.redirect(`${origin}${destination}`)
     }
   }
 

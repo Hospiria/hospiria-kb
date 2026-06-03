@@ -49,7 +49,7 @@ export async function POST(request: Request) {
         type: 'recovery',
         email,
         options: {
-          redirectTo: `${appUrl}/auth/callback`,
+          redirectTo: `${appUrl}/auth/callback?type=recovery`,
         },
       })
       if (!linkError && linkData?.properties?.action_link) {
