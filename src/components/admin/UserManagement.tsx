@@ -5,8 +5,9 @@ import { createClient } from '@/lib/supabase/client'
 import { Profile, Team } from '@/types'
 import { RoleBadge } from '@/components/ui/StatusBadge'
 import { formatDate } from '@/lib/utils'
-import { UserPlus, Edit2, Check, X, Shield, Eye, Copy, CheckCheck, Link2 } from 'lucide-react'
+import { UserPlus, Edit2, Check, X, Shield, Eye, Copy, CheckCheck, Link2, ShieldCheck } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { RolesEditor, UserPermissionsEditor } from './PermissionsManager'
 
 type UserWithTeams = Profile & {
   teams?: { name: string } | null
@@ -22,6 +23,8 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
   const [inviteMsg, setInviteMsg] = useState('')
   const [inviteSuccess, setInviteSuccess] = useState(false)
   const [setupLink, setSetupLink] = useState<string | null>(null)
+  const [activeView, setActiveView] = useState<'users' | 'roles'>('users')
+  const [permsForId, setPermsForId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [editRole, setEditRole] = useState('')
@@ -116,11 +119,25 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-navy-700">User Management</h1>
-        <p className="text-gray-500 text-sm mt-0.5">Invite and manage team members</p>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-navy-700">Users &amp; Permissions</h1>
+          <p className="text-gray-500 text-sm mt-0.5">Invite people, manage access, and set what each role can do</p>
+        </div>
+        <div className="inline-flex rounded-xl border border-gray-200 bg-white p-1">
+          <button onClick={() => setActiveView('users')} className={subtab(activeView === 'users')}>Users</button>
+          <button onClick={() => setActiveView('roles')} className={subtab(activeView === 'roles')}>Role defaults</button>
+        </div>
       </div>
 
+      {activeView === 'roles' && (
+        <div className="bg-white border border-gray-200 rounded-2xl p-6">
+          <RolesEditor />
+        </div>
+      )}
+
+      {activeView === 'users' && (
+        <>
       {/* Invite form */}
       <div className="bg-white border border-gray-200 rounded-2xl p-6">
         <h2 className="font-semibold text-navy-700 mb-4 flex items-center gap-2">
@@ -228,7 +245,8 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
                       className="text-sm border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-teal-500"
                     >
                       <option value="agent">Agent</option>
-                      <option value="author">Author</option>
+                      <option value="junior_team_leader">Junior Team Leader</option>
+                      <option value="team_leader">Team Leader</option>
                       <option value="approver">Approver</option>
                       <option value="super_admin">Super Admin</option>
                     </select>
@@ -268,6 +286,13 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
                       className="p-1.5 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors disabled:opacity-50"
                     >
                       <Link2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setPermsForId(permsForId === u.id ? null : u.id)}
+                      title="Permissions"
+                      className={`p-1.5 rounded-lg transition-colors ${permsForId === u.id ? 'text-teal-600 bg-teal-50' : 'text-gray-400 hover:text-teal-600 hover:bg-teal-50'}`}
+                    >
+                      <ShieldCheck className="w-4 h-4" />
                     </button>
                     <button onClick={() => startEdit(u)} className="p-1.5 text-gray-400 hover:text-navy-700 hover:bg-gray-100 rounded-lg transition-colors">
                       <Edit2 className="w-4 h-4" />
@@ -312,12 +337,29 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
                   })}
                 </div>
               </div>
+
+              {permsForId === u.id && (
+                <div className="mt-4 ml-10 border-t border-gray-100 pt-3">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5" /> Permissions
+                  </p>
+                  <UserPermissionsEditor userId={u.id} role={u.role} />
+                </div>
+              )}
             </div>
           ))}
         </div>
       </div>
+        </>
+      )}
     </div>
   )
+}
+
+function subtab(active: boolean) {
+  return `px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+    active ? 'bg-teal-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+  }`
 }
 
 function SetupLinkCopy({ link, onClose }: { link: string; onClose?: () => void }) {

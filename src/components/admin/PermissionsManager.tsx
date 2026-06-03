@@ -1,55 +1,20 @@
 'use client'
 
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
-import { Loader2, Save, ShieldCheck, Users, Lock, Info } from 'lucide-react'
+import { Loader2, Save, Lock, Info } from 'lucide-react'
 import {
   FEATURES, FeatureKey, Perm, ROLES, ROLE_LABEL, FEATURE_BY_KEY,
 } from '@/lib/permissions'
 import { Role } from '@/types'
 
-type Mode = 'roles' | 'people'
 type GroupName = 'Core' | 'SOPs' | 'Learning' | 'Admin'
 const GROUP_ORDER: GroupName[] = ['Core', 'SOPs', 'Learning', 'Admin']
-
-interface UserLite { id: string; full_name: string | null; role: string }
 type OverrideState = 'inherit' | 'none' | 'view' | 'edit'
 
-export function PermissionsManager({ users }: { users: UserLite[] }) {
-  const [mode, setMode] = useState<Mode>('roles')
-
-  return (
-    <div className="space-y-5">
-      {/* Mode switch */}
-      <div className="inline-flex rounded-xl border border-gray-200 bg-white p-1">
-        <button
-          onClick={() => setMode('roles')}
-          className={tab(mode === 'roles')}
-        >
-          <ShieldCheck className="w-4 h-4" /> Roles
-        </button>
-        <button
-          onClick={() => setMode('people')}
-          className={tab(mode === 'people')}
-        >
-          <Users className="w-4 h-4" /> People
-        </button>
-      </div>
-
-      {mode === 'roles' ? <RolesEditor /> : <PeopleEditor users={users} />}
-    </div>
-  )
-}
-
-function tab(active: boolean) {
-  return `flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-    active ? 'bg-teal-600 text-white' : 'text-gray-600 hover:bg-gray-50'
-  }`
-}
-
 // ---------------------------------------------------------------------------
-// ROLES
+// ROLE DEFAULTS editor
 // ---------------------------------------------------------------------------
-function RolesEditor() {
+export function RolesEditor() {
   const [role, setRole] = useState<Role>('team_leader')
   const [grid, setGrid] = useState<Record<FeatureKey, Perm> | null>(null)
   const [loading, setLoading] = useState(false)
@@ -70,10 +35,8 @@ function RolesEditor() {
     }
   }, [])
 
-  // Load the initial role on mount.
   useEffect(() => { load('team_leader') }, [load])
 
-  // Load on role change.
   function onRole(r: Role) {
     setRole(r)
     if (r !== 'super_admin') load(r)
@@ -106,6 +69,9 @@ function RolesEditor() {
 
   return (
     <div className="space-y-4">
+      <p className="text-sm text-gray-500">
+        Set the default permissions for a role. Everyone with that role inherits these unless overridden on an individual user.
+      </p>
       <div className="flex flex-wrap items-center gap-3">
         <label className="text-sm font-medium text-gray-600">Role</label>
         <select
@@ -129,19 +95,13 @@ function RolesEditor() {
       </div>
 
       {role === 'super_admin' ? (
-        <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
-          <Lock className="w-4 h-4 flex-shrink-0" /> Super Admin always has full access and can&apos;t be restricted.
-        </div>
+        <LockedNote />
       ) : loading || !grid ? (
-        <div className="flex items-center gap-2 text-gray-400 text-sm py-8 justify-center">
-          <Loader2 className="w-4 h-4 animate-spin" /> Loading…
-        </div>
+        <Loading />
       ) : (
-        <PermGrid
-          renderRow={(f) => (
-            <RoleRow key={f.key} feature={f.key} perm={grid[f.key]} onChange={p => setPerm(f.key, p)} />
-          )}
-        />
+        <PermGrid renderRow={(f) => (
+          <RoleRow key={f.key} feature={f.key} perm={grid[f.key]} onChange={p => setPerm(f.key, p)} />
+        )} />
       )}
     </div>
   )
@@ -169,28 +129,23 @@ function RoleRow({ feature, perm, onChange }: { feature: FeatureKey; perm: Perm;
 }
 
 // ---------------------------------------------------------------------------
-// PEOPLE
+// PER-USER overrides editor (embedded under a user row)
 // ---------------------------------------------------------------------------
-function PeopleEditor({ users }: { users: UserLite[] }) {
-  const [userId, setUserId] = useState('')
-  const [role, setRole] = useState<Role | null>(null)
+export function UserPermissionsEditor({ userId, role }: { userId: string; role: Role }) {
   const [rolePerms, setRolePerms] = useState<Record<FeatureKey, Perm> | null>(null)
   const [overrides, setOverrides] = useState<Partial<Record<FeatureKey, OverrideState>>>({})
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
 
-  const selectable = users.filter(u => u.role !== 'super_admin')
+  const isSuperAdmin = role === 'super_admin'
 
-  async function onUser(id: string) {
-    setUserId(id); setMessage(''); setRolePerms(null); setOverrides({}); setRole(null)
-    if (!id) return
-    setLoading(true)
+  const load = useCallback(async () => {
+    setLoading(true); setMessage(''); setRolePerms(null); setOverrides({})
     try {
-      const res = await fetch(`/api/admin/permissions/user?userId=${id}`)
+      const res = await fetch(`/api/admin/permissions/user?userId=${userId}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to load')
-      setRole(data.role)
       setRolePerms(data.rolePermissions)
       const ov: Partial<Record<FeatureKey, OverrideState>> = {}
       for (const [key, p] of Object.entries(data.overrides as Record<string, Perm>)) {
@@ -202,7 +157,9 @@ function PeopleEditor({ users }: { users: UserLite[] }) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [userId])
+
+  useEffect(() => { if (!isSuperAdmin) load() }, [load, isSuperAdmin])
 
   async function save() {
     setSaving(true); setMessage('')
@@ -229,58 +186,38 @@ function PeopleEditor({ users }: { users: UserLite[] }) {
     }
   }
 
+  if (isSuperAdmin) return <LockedNote />
+  if (loading || !rolePerms) return <Loading />
+
+  const overrideCount = Object.values(overrides).filter(s => s && s !== 'inherit').length
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <label className="text-sm font-medium text-gray-600">Person</label>
-        <select
-          value={userId}
-          onChange={e => onUser(e.target.value)}
-          className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500 min-w-[16rem]"
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 text-xs text-gray-500">
+        <Info className="w-3.5 h-3.5 flex-shrink-0 text-gray-400" />
+        <span>Each feature inherits from the <strong className="text-gray-700">{ROLE_LABEL[role]}</strong> role unless overridden.</span>
+      </div>
+      <PermGrid renderRow={(f) => (
+        <PersonRow
+          key={f.key}
+          feature={f.key}
+          inherited={rolePerms[f.key]}
+          state={overrides[f.key] ?? 'inherit'}
+          onChange={state => setOverrides(prev => ({ ...prev, [f.key]: state }))}
+        />
+      )} />
+      <div className="flex items-center gap-3">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white text-sm font-semibold rounded-lg hover:bg-teal-700 disabled:opacity-50"
         >
-          <option value="">Select a person…</option>
-          {selectable.map(u => (
-            <option key={u.id} value={u.id}>{u.full_name ?? '(no name)'} — {ROLE_LABEL[u.role as Role] ?? u.role}</option>
-          ))}
-        </select>
-        {userId && rolePerms && (
-          <button
-            onClick={save}
-            disabled={saving}
-            className="ml-auto flex items-center gap-2 px-4 py-2 bg-teal-600 text-white text-sm font-semibold rounded-lg hover:bg-teal-700 disabled:opacity-50"
-          >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            Save overrides
-          </button>
-        )}
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          Save permissions
+        </button>
+        <span className="text-xs text-gray-400">{overrideCount} override{overrideCount === 1 ? '' : 's'}</span>
         {message && <span className="text-sm text-teal-600 font-medium">{message}</span>}
       </div>
-
-      {!userId ? (
-        <p className="text-sm text-gray-400 py-8 text-center">Select a person to set their permissions.</p>
-      ) : loading || !rolePerms ? (
-        <div className="flex items-center gap-2 text-gray-400 text-sm py-8 justify-center">
-          <Loader2 className="w-4 h-4 animate-spin" /> Loading…
-        </div>
-      ) : (
-        <>
-          <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-xl px-4 py-2.5 text-sm text-gray-500">
-            <Info className="w-4 h-4 flex-shrink-0 text-gray-400" />
-            <span>Each feature inherits from the <strong className="text-gray-700">{role ? ROLE_LABEL[role] : ''}</strong> role unless you override it below.</span>
-          </div>
-          <PermGrid
-            renderRow={(f) => (
-              <PersonRow
-                key={f.key}
-                feature={f.key}
-                inherited={rolePerms[f.key]}
-                state={overrides[f.key] ?? 'inherit'}
-                onChange={state => setOverrides(prev => ({ ...prev, [f.key]: state }))}
-              />
-            )}
-          />
-        </>
-      )}
     </div>
   )
 }
@@ -362,5 +299,21 @@ function Check({ label, checked, disabled, onChange }: {
       />
       <span className="w-9 text-gray-600">{label}</span>
     </label>
+  )
+}
+
+function Loading() {
+  return (
+    <div className="flex items-center gap-2 text-gray-400 text-sm py-8 justify-center">
+      <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+    </div>
+  )
+}
+
+function LockedNote() {
+  return (
+    <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+      <Lock className="w-4 h-4 flex-shrink-0" /> Super Admin always has full access and can&apos;t be restricted.
+    </div>
   )
 }

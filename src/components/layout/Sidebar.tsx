@@ -8,7 +8,7 @@ import { RoleBadge } from '@/components/ui/StatusBadge'
 import {
   LayoutDashboard, Users, Building2, Upload,
   BookOpen, Users as TeamIcon, PlugZap, ListChecks, GraduationCap,
-  Briefcase, Layers, ChevronDown, Search, Library, Tag, Brain, ShieldCheck,
+  Briefcase, Layers, ChevronDown, Search, Library, Tag, Brain,
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -241,8 +241,7 @@ export function Sidebar({ profile, teamName, teams, companies, platforms }: Side
               <p className="text-white/55 text-[10px] font-bold uppercase tracking-[0.15em]">Admin</p>
             </div>
             {[
-              { label: 'Users', href: '/admin/users', icon: Users },
-              { label: 'Permissions', href: '/admin/permissions', icon: ShieldCheck },
+              { label: 'Users & Permissions', href: '/admin/users', icon: Users },
               { label: 'Teams & Categories', href: '/admin/teams', icon: Building2 },
               { label: 'Companies', href: '/admin/companies', icon: Briefcase },
               { label: 'Platforms', href: '/admin/platforms', icon: Layers },
