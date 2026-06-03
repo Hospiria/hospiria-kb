@@ -7,7 +7,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge'
 import { TiptapViewer } from '@/components/sops/TiptapViewer'
 import { VersionHistoryPanel } from '@/components/sops/VersionHistoryPanel'
 import { formatDateTime } from '@/lib/utils'
-import { Edit, ChevronLeft, CheckCircle, Clock } from 'lucide-react'
+import { Edit, ChevronLeft, CheckCircle, Clock, Link2, ChevronRight } from 'lucide-react'
 import { getEffectiveSession } from '@/lib/impersonation'
 import { canEditAnySop, canApproveSop, canSeeAllDrafts, canCreateSop } from '@/lib/roles'
 
@@ -42,6 +42,22 @@ export default async function SopViewPage({ params }: { params: { id: string } }
     .eq('sop_id', params.id)
     .eq('status', 'pending')
     .single()
+
+  // Related SOPs — links are stored once per pair, so check both directions
+  // and resolve the "other" SOP. Only surface ones this viewer is allowed to
+  // see (drafts stay hidden from roles that can't see drafts).
+  const { data: relLinkRows } = await supabase
+    .from('sop_links')
+    .select('sop_a, sop_b')
+    .or(`sop_a.eq.${params.id},sop_b.eq.${params.id}`)
+  const relatedIds = (relLinkRows ?? []).map(l => (l.sop_a === params.id ? l.sop_b : l.sop_a))
+  const { data: relatedSopsRaw } = relatedIds.length
+    ? await supabase.from('sops').select('id, title, status').in('id', relatedIds)
+    : { data: [] as { id: string; title: string; status: string }[] }
+  const canSeeDrafts = canSeeAllDrafts(profile.role)
+  const relatedSops = ((relatedSopsRaw ?? []) as { id: string; title: string; status: string }[])
+    .filter(r => r.status === 'live' || canSeeDrafts)
+    .sort((a, b) => a.title.localeCompare(b.title))
 
   // Can edit: admins/approvers can edit any; team leaders + junior TLs can edit their own
   const isOwner = sop.author_id === effectiveUserId
@@ -139,6 +155,33 @@ export default async function SopViewPage({ params }: { params: { id: string } }
               </div>
             )}
           </div>
+
+          {/* Related SOPs */}
+          {relatedSops.length > 0 && (
+            <div className="bg-white border border-gray-200 rounded-2xl p-6 mt-4">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                <Link2 className="w-4 h-4 text-teal-500" /> Related SOPs
+              </h2>
+              <ul className="divide-y divide-gray-100">
+                {relatedSops.map(r => (
+                  <li key={r.id}>
+                    <Link
+                      href={`/sops/${r.id}`}
+                      className="flex items-center justify-between gap-3 py-2.5 group"
+                    >
+                      <span className="flex items-center gap-2 min-w-0">
+                        <span className="text-sm text-navy-700 group-hover:text-teal-600 transition-colors truncate">{r.title}</span>
+                        {r.status !== 'live' && (
+                          <span className="text-[10px] uppercase tracking-wide text-gray-400 border border-gray-200 rounded px-1.5 py-0.5 flex-shrink-0">{r.status}</span>
+                        )}
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-teal-500 transition-colors flex-shrink-0" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         {/* Version history sidebar */}

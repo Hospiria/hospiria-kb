@@ -40,6 +40,18 @@ export default async function EditSopPage({ params }: { params: { id: string } }
   const initialCompanyIds = (sop.sop_companies as { company_id: string }[] | null)?.map(c => c.company_id) ?? []
   const initialPlatformIds = (sop.sop_platforms as { platform_id: string }[] | null)?.map(p => p.platform_id) ?? []
 
+  // Related SOPs — links are stored once per pair (either side), so look up
+  // both directions and resolve the "other" SOP's title for the editor.
+  const { data: linkRows } = await supabase
+    .from('sop_links')
+    .select('sop_a, sop_b')
+    .or(`sop_a.eq.${params.id},sop_b.eq.${params.id}`)
+  const linkedIds = (linkRows ?? []).map(l => (l.sop_a === params.id ? l.sop_b : l.sop_a))
+  const { data: linkedSopRows } = linkedIds.length
+    ? await supabase.from('sops').select('id, title').in('id', linkedIds)
+    : { data: [] as { id: string; title: string }[] }
+  const initialLinkedSops = (linkedSopRows ?? []) as { id: string; title: string }[]
+
   return (
     <div>
       <Link href={`/sops/${params.id}`} className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-navy-700 mb-6 transition-colors">
@@ -55,6 +67,7 @@ export default async function EditSopPage({ params }: { params: { id: string } }
         initialTeamIds={initialTeamIds}
         initialCompanyIds={initialCompanyIds}
         initialPlatformIds={initialPlatformIds}
+        initialLinkedSops={initialLinkedSops}
         initialStatus={sop.status}
         categories={categories ?? []}
         teams={teams ?? []}

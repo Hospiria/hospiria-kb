@@ -13,14 +13,14 @@ import Placeholder from '@tiptap/extension-placeholder'
 import TextStyle from '@tiptap/extension-text-style'
 import Color from '@tiptap/extension-color'
 import { TiptapContent, Category, Team, Company, Platform, Profile } from '@/types'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
   Bold, Italic, Underline as UnderlineIcon, List, ListOrdered,
   Heading1, Heading2, Heading3, Table as TableIcon, Link as LinkIcon,
   Image as ImageIcon, Minus, AlignLeft, Save, Send, Undo, Redo, Globe,
-  GraduationCap,
+  GraduationCap, Link2, X, Search, Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -32,6 +32,7 @@ interface SopEditorProps {
   initialTeamIds?: string[]
   initialCompanyIds?: string[]
   initialPlatformIds?: string[]
+  initialLinkedSops?: { id: string; title: string }[]
   initialStatus?: string
   categories: Category[]
   teams: Team[]
@@ -50,6 +51,7 @@ export function SopEditor({
   initialTeamIds = [],
   initialCompanyIds = [],
   initialPlatformIds = [],
+  initialLinkedSops = [],
   initialStatus = 'draft',
   categories,
   teams,
@@ -64,6 +66,15 @@ export function SopEditor({
   const [selectedTeams, setSelectedTeams] = useState<string[]>(initialTeamIds)
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>(initialCompanyIds)
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(initialPlatformIds)
+
+  // Related SOPs (bidirectional links). We hold the linked SOPs as {id, title}
+  // so the panel can show names without an extra lookup.
+  const [linkedSops, setLinkedSops] = useState<{ id: string; title: string }[]>(initialLinkedSops)
+  const [linkPickerOpen, setLinkPickerOpen] = useState(false)
+  const [linkQuery, setLinkQuery] = useState('')
+  const [linkResults, setLinkResults] = useState<{ id: string; title: string; status: string }[]>([])
+  const [linkSearching, setLinkSearching] = useState(false)
+  const linkDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Quiz settings — default ON for new SOPs, OFF for edits
   const isNew = !sopId
@@ -108,6 +119,42 @@ export function SopEditor({
 
   const toggleQuizUser = (id: string) =>
     setQuizSpecificUserIds(prev => prev.includes(id) ? prev.filter(u => u !== id) : [...prev, id])
+
+  // --- Related SOPs ---------------------------------------------------------
+  function runLinkSearch(q: string) {
+    setLinkQuery(q)
+    if (linkDebounce.current) clearTimeout(linkDebounce.current)
+    if (q.trim().length < 2) { setLinkResults([]); setLinkSearching(false); return }
+    setLinkSearching(true)
+    linkDebounce.current = setTimeout(async () => {
+      const linkedIds = new Set(linkedSops.map(s => s.id))
+      let query = supabase
+        .from('sops')
+        .select('id, title, status')
+        .ilike('title', `%${q.trim()}%`)
+        .order('title')
+        .limit(12)
+      if (sopId) query = query.neq('id', sopId) // can't link a SOP to itself
+      const { data } = await query
+      const rows = ((data ?? []) as { id: string; title: string; status: string }[])
+        .filter(r => !linkedIds.has(r.id))
+      setLinkResults(rows)
+      setLinkSearching(false)
+    }, 250)
+  }
+
+  function addLink(sop: { id: string; title: string }) {
+    setLinkedSops(prev => prev.some(s => s.id === sop.id) ? prev : [...prev, { id: sop.id, title: sop.title }])
+    setLinkResults(prev => prev.filter(r => r.id !== sop.id))
+  }
+
+  const removeLink = (id: string) => setLinkedSops(prev => prev.filter(s => s.id !== id))
+
+  function closeLinkPicker() {
+    setLinkPickerOpen(false)
+    setLinkQuery('')
+    setLinkResults([])
+  }
 
   async function save(mode: 'draft' | 'submit' | 'publish' = 'draft') {
     if (!editor) return
@@ -164,6 +211,19 @@ export function SopEditor({
         if (selectedPlatforms.length > 0) {
           await supabase.from('sop_platforms').insert(
             selectedPlatforms.map(platform_id => ({ sop_id: id!, platform_id }))
+          )
+        }
+
+        // Sync related SOPs (bidirectional). One row per pair stored in
+        // canonical order (sop_a < sop_b). Clear every link involving this SOP,
+        // then re-insert the chosen set — same delete+insert pattern as above.
+        await supabase.from('sop_links').delete().or(`sop_a.eq.${id},sop_b.eq.${id}`)
+        const linkIds = [...new Set(linkedSops.map(s => s.id))].filter(other => other !== id)
+        if (linkIds.length > 0) {
+          await supabase.from('sop_links').insert(
+            linkIds.map(other => (id! < other
+              ? { sop_a: id!, sop_b: other }
+              : { sop_a: other, sop_b: id! }))
           )
         }
 
@@ -395,6 +455,40 @@ export function SopEditor({
           )}
         </div>
 
+        {/* Related SOPs */}
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">Related SOPs</label>
+            <Link2 className="w-4 h-4 text-teal-500" />
+          </div>
+          {linkedSops.length === 0 ? (
+            <p className="text-xs text-gray-400 italic mb-2">No linked SOPs yet.</p>
+          ) : (
+            <ul className="space-y-1.5 mb-2">
+              {linkedSops.map(s => (
+                <li key={s.id} className="flex items-center justify-between gap-2 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1.5">
+                  <span className="text-sm text-gray-700 truncate" title={s.title}>{s.title}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeLink(s.id)}
+                    title="Unlink"
+                    className="text-gray-400 hover:text-red-600 flex-shrink-0"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <button
+            type="button"
+            onClick={() => setLinkPickerOpen(true)}
+            className="w-full flex items-center justify-center gap-2 py-1.5 px-3 border border-gray-200 text-gray-600 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            <Link2 className="w-4 h-4" /> Link to another SOP
+          </button>
+        </div>
+
         {/* Quiz settings */}
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <div className="flex items-center justify-between mb-1">
@@ -470,6 +564,77 @@ export function SopEditor({
         </div>
 
       </div>
+
+      {/* Link picker popup */}
+      {linkPickerOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-4 pt-24"
+          onClick={closeLinkPicker}
+        >
+          <div
+            className="w-full max-w-lg bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+              <h3 className="font-semibold text-navy-700 flex items-center gap-2">
+                <Link2 className="w-4 h-4 text-teal-500" /> Link to another SOP
+              </h3>
+              <button type="button" onClick={closeLinkPicker} className="text-gray-400 hover:text-gray-700">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                {linkSearching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />}
+                <input
+                  autoFocus
+                  type="text"
+                  value={linkQuery}
+                  onChange={e => runLinkSearch(e.target.value)}
+                  placeholder="Search SOPs by title…"
+                  className="w-full text-sm border border-gray-200 rounded-lg pl-9 pr-9 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+
+              <div className="mt-3 max-h-72 overflow-y-auto">
+                {linkQuery.trim().length < 2 ? (
+                  <p className="text-sm text-gray-400 text-center py-6">Type at least 2 characters to search.</p>
+                ) : !linkSearching && linkResults.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-6">No matching SOPs found.</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {linkResults.map(r => (
+                      <li key={r.id}>
+                        <button
+                          type="button"
+                          onClick={() => addLink(r)}
+                          className="w-full flex items-center justify-between gap-3 text-left px-3 py-2 rounded-lg hover:bg-teal-50 transition-colors"
+                        >
+                          <span className="text-sm text-gray-700 truncate">{r.title}</span>
+                          <span className="flex items-center gap-2 flex-shrink-0">
+                            {r.status !== 'live' && (
+                              <span className="text-[10px] uppercase tracking-wide text-gray-400 border border-gray-200 rounded px-1.5 py-0.5">{r.status}</span>
+                            )}
+                            <Link2 className="w-4 h-4 text-teal-500" />
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {linkedSops.length > 0 && (
+                <p className="text-xs text-gray-400 mt-3 pt-3 border-t border-gray-100">
+                  {linkedSops.length} SOP{linkedSops.length === 1 ? '' : 's'} linked. Close this window, then Save or Publish to keep your changes.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
