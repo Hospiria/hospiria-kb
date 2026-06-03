@@ -18,6 +18,18 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
   const { error } = await supabase.from('notes').update(patch).eq('id', params.id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // If someone was @mentioned, notify them (best-effort, fire-and-forget).
+  if (body.mentionedUserId && typeof body.mentionedUserId === 'string' && body.mentionedUserId !== auth.userId) {
+    const { data: note } = await supabase.from('notes').select('title').eq('id', params.id).single()
+    await supabase.from('notifications').insert({
+      user_id: body.mentionedUserId,
+      type: 'note_mention',
+      message: `You were mentioned in a note: "${(note?.title || 'Untitled').slice(0, 80)}"`,
+      link: '/notes',
+    })
+  }
+
   return NextResponse.json({ success: true })
 }
 

@@ -14,6 +14,7 @@ export function NotesPanel() {
   const [notes, setNotes] = useState<Note[]>([])
   const [loading, setLoading] = useState(true)
   const [active, setActive] = useState<Note | null>(null)
+  const [createError, setCreateError] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -22,8 +23,13 @@ export function NotesPanel() {
   useEffect(() => { load() }, [load])
 
   async function createNote() {
+    setCreateError('')
     const r = await fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: '', body: '' }) })
     if (r.ok) { const n = (await r.json()).note as Note; setNotes(prev => [n, ...prev]); setActive(n) }
+    else {
+      const d = await r.json().catch(() => ({}))
+      setCreateError(d.error ?? 'Could not create — run migration 011 in Supabase first.')
+    }
   }
 
   if (active) return <NoteEditor note={active} onBack={() => { setActive(null); load() }} onChanged={load} />
@@ -34,6 +40,7 @@ export function NotesPanel() {
         <span className="text-xs text-gray-400">{notes.length} note{notes.length === 1 ? '' : 's'}</span>
         <button onClick={createNote} className="flex items-center gap-1.5 text-sm font-medium text-teal-600 hover:text-teal-700"><Plus className="w-4 h-4" /> New note</button>
       </div>
+      {createError && <p className="text-xs text-red-500 px-3 py-2 bg-red-50 border-b border-red-100">{createError}</p>}
       <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-slate-50">
         {loading ? <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-gray-300" /></div> :
           notes.length === 0 ? <p className="text-center text-sm text-gray-400 py-10">No notes yet. Create one to get started.</p> :

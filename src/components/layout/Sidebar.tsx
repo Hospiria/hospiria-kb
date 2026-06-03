@@ -8,7 +8,7 @@ import { RoleBadge } from '@/components/ui/StatusBadge'
 import {
   LayoutDashboard, Users, Building2, Upload,
   BookOpen, Users as TeamIcon, PlugZap, ListChecks, GraduationCap,
-  Briefcase, Layers, ChevronDown, Search, Library, Tag, Brain,
+  Briefcase, Layers, ChevronDown, Search, Library, Tag, Brain, NotebookPen,
 } from 'lucide-react'
 import { useState } from 'react'
 import { FeatureKey, Perm } from '@/lib/permissions'
@@ -115,6 +115,11 @@ export function Sidebar({ profile, teamName, teams, companies, platforms, perms 
 
         <NavItem href="/dashboard" icon={LayoutDashboard} label="Dashboard"
           active={pathname === '/dashboard'} />
+
+        {can('notes') && (
+          <NavItem href="/notes" icon={NotebookPen} label="Notes & To-dos"
+            active={pathname === '/notes' || pathname.startsWith('/notes/')} />
+        )}
 
         <NavItem href="/quizzes" icon={GraduationCap} label="My Courses"
           active={pathname === '/quizzes' || pathname.startsWith('/quizzes/')} />
