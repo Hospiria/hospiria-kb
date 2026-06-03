@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Profile, Team } from '@/types'
 import { RoleBadge } from '@/components/ui/StatusBadge'
 import { formatDate } from '@/lib/utils'
-import { UserPlus, Edit2, X, Eye, Copy, CheckCheck, Link2 } from 'lucide-react'
+import { UserPlus, Edit2, X, Eye } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { RolesEditor } from './PermissionsManager'
@@ -17,15 +17,13 @@ type UserWithTeams = Profile & {
 export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams: Team[] }) {
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteFullName, setInviteFullName] = useState('')
+  const [invitePassword, setInvitePassword] = useState('')
   const [inviteRole, setInviteRole] = useState('agent')
   const [inviteTeam, setInviteTeam] = useState('')
   const [inviting, setInviting] = useState(false)
   const [inviteMsg, setInviteMsg] = useState('')
   const [inviteSuccess, setInviteSuccess] = useState(false)
-  const [setupLink, setSetupLink] = useState<string | null>(null)
   const [impersonating, setImpersonating] = useState<string | null>(null)
-  const [generatingLinkFor, setGeneratingLinkFor] = useState<string | null>(null)
-  const [userLinks, setUserLinks] = useState<Record<string, string>>({})
   const [activeView, setActiveView] = useState<'users' | 'roles'>('users')
   const router = useRouter()
 
@@ -45,42 +43,24 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
     setInviting(true)
     setInviteMsg('')
     setInviteSuccess(false)
-    setSetupLink(null)
     try {
       const res = await fetch('/api/admin/invite', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: inviteEmail, role: inviteRole, teamId: inviteTeam, fullName: inviteFullName }),
+        body: JSON.stringify({ email: inviteEmail, role: inviteRole, teamId: inviteTeam, fullName: inviteFullName, password: invitePassword }),
       })
       const json = await res.json()
       if (json.success) {
         setInviteSuccess(true)
-        setSetupLink(json.setupLink ?? null)
         setInviteEmail('')
         setInviteFullName('')
+        setInvitePassword('')
         router.refresh()
       } else {
         setInviteMsg(json.error ?? 'Error creating user')
       }
     } finally {
       setInviting(false)
-    }
-  }
-
-  async function generateSetupLink(userId: string) {
-    setGeneratingLinkFor(userId)
-    try {
-      const res = await fetch('/api/admin/setup-link', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId }),
-      })
-      const json = await res.json()
-      if (json.success) {
-        setUserLinks(prev => ({ ...prev, [userId]: json.link }))
-      }
-    } finally {
-      setGeneratingLinkFor(null)
     }
   }
 
@@ -118,7 +98,7 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
                   value={inviteFullName}
                   onChange={e => setInviteFullName(e.target.value)}
                   placeholder="Full name"
-                  className="flex-1 min-w-[160px] px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  className="flex-1 min-w-[150px] px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
                 <input
                   type="email"
@@ -126,7 +106,15 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
                   onChange={e => setInviteEmail(e.target.value)}
                   required
                   placeholder="email@hospiria.com"
-                  className="flex-1 min-w-[200px] px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  className="flex-1 min-w-[180px] px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+                <input
+                  type="text"
+                  value={invitePassword}
+                  onChange={e => setInvitePassword(e.target.value)}
+                  required
+                  placeholder="Temporary password"
+                  className="flex-1 min-w-[150px] px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
               <div className="flex gap-3 flex-wrap">
@@ -160,16 +148,9 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
             </form>
             {inviteMsg && <p className="text-sm text-red-500 mt-2">{inviteMsg}</p>}
             {inviteSuccess && (
-              <div className="mt-3 p-4 bg-teal-50 border border-teal-200 rounded-xl space-y-2">
-                <p className="text-sm font-semibold text-teal-800">✓ User created successfully!</p>
-                {setupLink ? (
-                  <>
-                    <p className="text-xs text-teal-700">Share this password-setup link with them via Teams or WhatsApp:</p>
-                    <SetupLinkCopy link={setupLink} />
-                  </>
-                ) : (
-                  <p className="text-xs text-teal-700">User created. They can use &quot;Forgot password&quot; on the login page to set their password.</p>
-                )}
+              <div className="mt-3 p-3 bg-teal-50 border border-teal-200 rounded-xl">
+                <p className="text-sm font-semibold text-teal-800">✓ User created!</p>
+                <p className="text-xs text-teal-700 mt-0.5">Share their email and temporary password with them. They can change it after logging in via their name in the top-right corner.</p>
               </div>
             )}
           </div>
@@ -208,14 +189,7 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
                       >
                         <Eye className="w-4 h-4" />
                       </button>
-                      <button
-                        onClick={() => generateSetupLink(u.id)}
-                        disabled={generatingLinkFor === u.id}
-                        title="Get login setup link"
-                        className="p-1.5 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors disabled:opacity-50"
-                      >
-                        <Link2 className="w-4 h-4" />
-                      </button>
+
                       <Link
                         href={`/admin/users/${u.id}`}
                         title="Edit user & permissions"
@@ -226,12 +200,6 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
                     </div>
                   </div>
 
-                  {/* Setup link if generated */}
-                  {userLinks[u.id] && (
-                    <div className="mt-2 ml-10">
-                      <SetupLinkCopy link={userLinks[u.id]} onClose={() => setUserLinks(prev => { const n = { ...prev }; delete n[u.id]; return n })} />
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
@@ -248,32 +216,3 @@ function subtab(active: boolean) {
   }`
 }
 
-function SetupLinkCopy({ link, onClose }: { link: string; onClose?: () => void }) {
-  const [copied, setCopied] = useState(false)
-  function copy() {
-    navigator.clipboard.writeText(link)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2500)
-  }
-  return (
-    <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl space-y-2">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-teal-800">Share this login link with the user:</p>
-        {onClose && <button onClick={onClose} className="text-teal-400 hover:text-teal-600"><X className="w-3.5 h-3.5" /></button>}
-      </div>
-      <div className="flex items-start gap-2">
-        <code className="flex-1 text-[11px] bg-white border border-teal-200 rounded-lg px-2 py-1.5 text-teal-900 break-all leading-snug">
-          {link}
-        </code>
-        <button
-          onClick={copy}
-          className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-medium rounded-lg transition-colors"
-        >
-          {copied ? <CheckCheck className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-          {copied ? 'Copied!' : 'Copy'}
-        </button>
-      </div>
-      <p className="text-[11px] text-teal-600">Link expires after first use. They click it, set a password, and they&apos;re in.</p>
-    </div>
-  )
-}
