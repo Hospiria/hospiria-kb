@@ -4,9 +4,10 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Plus, Pin, PinOff, Trash2, Share2, Users, ArrowLeft,
   Circle, Sparkles, Loader2, Calendar, ChevronDown,
-  StickyNote, ListChecks, Check, X, Lock, Globe,
+  StickyNote, ListChecks, Check, X, Lock, Globe, RotateCcw,
 } from 'lucide-react'
 import { MentionTextarea } from './MentionTextarea'
+import { DeleteConfirmModal, type DeleteTarget } from './DeleteConfirmModal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -14,17 +15,19 @@ interface Person { id: string; full_name: string | null }
 interface Team   { id: string; name: string }
 interface Note {
   id: string; title: string; body: string; color: string | null; pinned: boolean
-  updated_at: string; team_id: string | null; mine: boolean; canEdit: boolean; shared: boolean
+  updated_at: string; team_id: string | null; mine: boolean; canEdit: boolean
+  shared: boolean; deleted_at: string | null; deletedByName: string | null
 }
 interface Todo {
   id: string; owner_id: string; assignee_id: string | null; team_id: string | null
   title: string; detail: string | null; due_date: string | null
   priority: 'low' | 'medium' | 'high'; status: 'open' | 'done'
+  deleted_at: string | null; deleted_by: string | null; deletedByName: string | null
   mine: boolean; assignedToMe: boolean; ownerName: string | null
   assigneeName: string | null; teamName: string | null
 }
 
-type Space = 'personal' | string  // 'personal' or a team id
+type Space = 'personal' | string
 type Tab = 'notes' | 'todos'
 
 const PRIORITY_COLOR: Record<string, string> = {
@@ -42,27 +45,39 @@ export function NotesPageClient({ currentUserId, people, myTeams }: {
   const [tab, setTab] = useState<Tab>('notes')
   const [notes, setNotes] = useState<Note[]>([])
   const [todos, setTodos] = useState<Todo[]>([])
+  const [trashNotes, setTrashNotes] = useState<Note[]>([])
+  const [trashTodos, setTrashTodos] = useState<Todo[]>([])
   const [loadingNotes, setLoadingNotes] = useState(true)
   const [loadingTodos, setLoadingTodos] = useState(true)
+  const [showTrash, setShowTrash] = useState(false)
   const [activeNote, setActiveNote] = useState<Note | null>(null)
   const [error, setError] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
 
   const qs = space === 'personal' ? '?space=personal' : `?teamId=${space}`
 
   const loadNotes = useCallback(async () => {
     setLoadingNotes(true); setError('')
     try {
-      const r = await fetch(`/api/notes${qs}`)
-      if (r.ok) setNotes((await r.json()).notes ?? [])
-      else { const d = await r.json().catch(() => ({})); setError(d.error ?? 'Could not load notes.') }
+      const [active, trash] = await Promise.all([
+        fetch(`/api/notes${qs}`).then(r => r.ok ? r.json() : null),
+        fetch(`/api/notes${qs}&trash=true`).then(r => r.ok ? r.json() : null),
+      ])
+      if (active) setNotes(active.notes ?? [])
+      else setError('Could not load notes.')
+      if (trash) setTrashNotes(trash.notes ?? [])
     } finally { setLoadingNotes(false) }
   }, [qs])
 
   const loadTodos = useCallback(async () => {
     setLoadingTodos(true)
     try {
-      const r = await fetch(`/api/todos${qs}`)
-      if (r.ok) setTodos((await r.json()).todos ?? [])
+      const [active, trash] = await Promise.all([
+        fetch(`/api/todos${qs}`).then(r => r.ok ? r.json() : null),
+        fetch(`/api/todos${qs}&trash=true`).then(r => r.ok ? r.json() : null),
+      ])
+      if (active) setTodos(active.todos ?? [])
+      if (trash) setTrashTodos(trash.todos ?? [])
     } finally { setLoadingTodos(false) }
   }, [qs])
 
@@ -72,17 +87,28 @@ export function NotesPageClient({ currentUserId, people, myTeams }: {
     setError('')
     const teamId = space === 'personal' ? null : space
     const r = await fetch('/api/notes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: '', body: '', teamId }),
     })
-    if (r.ok) {
-      const n = (await r.json()).note as Note
-      setNotes(prev => [n, ...prev]); setActiveNote(n)
-    } else {
-      const d = await r.json().catch(() => ({}))
-      setError(d.error ?? 'Could not create note — make sure migration 012 has been run.')
-    }
+    if (r.ok) { const n = (await r.json()).note as Note; setNotes(prev => [n, ...prev]); setActiveNote(n) }
+    else { const d = await r.json().catch(() => ({})); setError(d.error ?? 'Could not create note.') }
+  }
+
+  function requestDelete(target: DeleteTarget) { setDeleteTarget(target) }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return
+    const url = deleteTarget.type === 'note' ? `/api/notes/${deleteTarget.id}` : `/api/todos/${deleteTarget.id}`
+    const r = await fetch(url, { method: 'DELETE' })
+    setDeleteTarget(null)
+    if (r.ok) { if (deleteTarget.type === 'note') loadNotes(); else loadTodos() }
+    else { const d = await r.json().catch(() => ({})); setError(d.error || 'Delete failed') }
+  }
+
+  async function restore(type: 'note' | 'todo', id: string) {
+    const url = type === 'note' ? `/api/notes/${id}` : `/api/todos/${id}`
+    await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restore: true }) })
+    if (type === 'note') loadNotes(); else loadTodos()
   }
 
   const activeTeam = myTeams.find(t => t.id === space) ?? null
@@ -90,20 +116,23 @@ export function NotesPageClient({ currentUserId, people, myTeams }: {
 
   if (activeNote) {
     return (
-      <NoteEditor
-        note={activeNote}
-        people={people}
-        currentUserId={currentUserId}
-        isTeamNote={isTeamSpace}
-        onBack={() => { setActiveNote(null); loadNotes() }}
-        onChanged={loadNotes}
-      />
+      <>
+        <NoteEditor
+          note={activeNote} people={people} currentUserId={currentUserId}
+          isTeamNote={isTeamSpace}
+          onBack={() => { setActiveNote(null); loadNotes() }}
+          onChanged={loadNotes}
+          onDelete={n => requestDelete({ type: 'note', id: n.id, title: n.title, mine: n.mine, ownerName: null, canDelete: n.mine || isTeamSpace })}
+        />
+        {deleteTarget && <DeleteConfirmModal target={deleteTarget} onConfirm={async () => { await confirmDelete(); setActiveNote(null) }} onCancel={() => setDeleteTarget(null)} />}
+      </>
     )
   }
 
   return (
     <div className="max-w-5xl mx-auto">
-      {/* Header */}
+      {deleteTarget && <DeleteConfirmModal target={deleteTarget} onConfirm={confirmDelete} onCancel={() => setDeleteTarget(null)} />}
+
       <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-navy-700">Notes &amp; To-dos</h1>
@@ -119,22 +148,14 @@ export function NotesPageClient({ currentUserId, people, myTeams }: {
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-4">{error}</p>}
 
       {/* Space switcher */}
-      <div className="flex flex-wrap items-center gap-2 mb-5">
-        <SpaceBtn active={space === 'personal'} onClick={() => setSpace('personal')}>
-          <Lock className="w-3.5 h-3.5" /> Personal
-        </SpaceBtn>
+      <div className="flex flex-wrap items-center gap-2 mb-2">
+        <SpaceBtn active={space === 'personal'} onClick={() => setSpace('personal')}><Lock className="w-3.5 h-3.5" /> Personal</SpaceBtn>
         {myTeams.map(t => (
-          <SpaceBtn key={t.id} active={space === t.id} onClick={() => setSpace(t.id)}>
-            <Globe className="w-3.5 h-3.5" /> {t.name}
-          </SpaceBtn>
+          <SpaceBtn key={t.id} active={space === t.id} onClick={() => setSpace(t.id)}><Globe className="w-3.5 h-3.5" /> {t.name}</SpaceBtn>
         ))}
       </div>
-
-      {/* Space description */}
-      <p className="text-xs text-gray-400 mb-4 -mt-2">
-        {isTeamSpace
-          ? `Team space — everyone on ${activeTeam?.name ?? 'this team'} can see and edit these notes and to-dos.`
-          : 'Personal space — only you can see these unless you share or assign them.'}
+      <p className="text-xs text-gray-400 mb-4">
+        {isTeamSpace ? `Team space — everyone on ${activeTeam?.name ?? 'this team'} can see and edit.` : 'Personal space — only you can see these unless you share or assign them.'}
       </p>
 
       {/* Content tabs */}
@@ -144,53 +165,82 @@ export function NotesPageClient({ currentUserId, people, myTeams }: {
       </div>
 
       {tab === 'notes' && (
-        loadingNotes ? <SpinnerRow /> :
-        notes.length === 0 ? (
-          <Empty label={isTeamSpace ? `No team notes yet. Click 'New note' to create one.` : `No personal notes yet. Click 'New note' to get started.`} />
-        ) : (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {notes.map(n => (
-              <button
-                key={n.id}
-                onClick={() => setActiveNote(n)}
-                className="text-left bg-white border border-gray-200 rounded-2xl p-4 hover:border-teal-400 hover:shadow-sm transition-all group"
-                style={n.color ? { borderTop: `3px solid ${n.color}` } : undefined}
-              >
-                <div className="flex items-start justify-between gap-2 mb-1">
-                  <p className="text-sm font-semibold text-navy-700 truncate group-hover:text-teal-700">{n.title || 'Untitled'}</p>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    {n.pinned && <Pin className="w-3.5 h-3.5 text-amber-500" />}
-                    {n.shared && <span title="Shared with you"><Users className="w-3.5 h-3.5 text-teal-400" /></span>}
-                  </div>
-                </div>
-                {n.body && <p className="text-xs text-gray-500 line-clamp-3 whitespace-pre-wrap leading-relaxed">{n.body.slice(0, 200)}</p>}
-                <p className="text-[10px] text-gray-300 mt-2">{new Date(n.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>
-              </button>
-            ))}
-          </div>
-        )
+        loadingNotes ? <SpinnerRow /> : <>
+          {notes.length === 0 ? (
+            <Empty label={isTeamSpace ? `No team notes yet. Click 'New note' to create one.` : `No personal notes yet. Click 'New note' to get started.`} />
+          ) : (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {notes.map(n => (
+                <NoteCard
+                  key={n.id}
+                  note={n}
+                  onOpen={() => setActiveNote(n)}
+                  onDelete={() => requestDelete({ type: 'note', id: n.id, title: n.title, mine: n.mine, ownerName: null, canDelete: n.mine || isTeamSpace })}
+                />
+              ))}
+            </div>
+          )}
+          <TrashSection
+            show={showTrash} onToggle={() => setShowTrash(s => !s)}
+            trashNotes={trashNotes} trashTodos={[]}
+            onRestoreNote={id => restore('note', id)}
+          />
+        </>
       )}
 
       {tab === 'todos' && (
         <TodosSection
-          todos={todos}
-          people={people}
-          teams={myTeams}
+          todos={todos} trashTodos={trashTodos}
+          people={people} teams={myTeams}
           currentTeamId={isTeamSpace ? space : null}
+          currentUserId={currentUserId}
           onRefresh={loadTodos}
           loading={loadingTodos}
-          space={space}
+          onDelete={t => requestDelete({
+            type: 'todo', id: t.id, title: t.title, mine: t.mine, ownerName: t.ownerName,
+            canDelete: t.mine || (!!t.team_id),
+          })}
+          onRestore={id => restore('todo', id)}
         />
       )}
     </div>
   )
 }
 
+// ─── Note card with quick delete ─────────────────────────────────────────────
+
+function NoteCard({ note, onOpen, onDelete }: { note: Note; onOpen: () => void; onDelete: () => void }) {
+  return (
+    <div className="relative group bg-white border border-gray-200 rounded-2xl p-4 hover:border-teal-400 hover:shadow-sm transition-all"
+      style={note.color ? { borderTop: `3px solid ${note.color}` } : undefined}>
+      <button onClick={onOpen} className="w-full text-left">
+        <div className="flex items-start justify-between gap-2 mb-1 pr-6">
+          <p className="text-sm font-semibold text-navy-700 truncate group-hover:text-teal-700">{note.title || 'Untitled'}</p>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {note.pinned && <Pin className="w-3.5 h-3.5 text-amber-500" />}
+            {note.shared && <span title="Shared with you"><Users className="w-3.5 h-3.5 text-teal-400" /></span>}
+          </div>
+        </div>
+        {note.body && <p className="text-xs text-gray-500 line-clamp-3 whitespace-pre-wrap leading-relaxed">{note.body.slice(0, 200)}</p>}
+        <p className="text-[10px] text-gray-300 mt-2">{new Date(note.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>
+      </button>
+      {/* Quick delete — always visible, top-right corner */}
+      <button
+        onClick={e => { e.stopPropagation(); onDelete() }}
+        title="Delete note"
+        className="absolute top-3 right-3 p-1 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+      >
+        <Trash2 className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  )
+}
+
 // ─── Note editor ──────────────────────────────────────────────────────────────
 
-function NoteEditor({ note, people, currentUserId, isTeamNote, onBack, onChanged }: {
+function NoteEditor({ note, people, currentUserId, isTeamNote, onBack, onChanged, onDelete }: {
   note: Note; people: Person[]; currentUserId: string; isTeamNote: boolean
-  onBack: () => void; onChanged: () => void
+  onBack: () => void; onChanged: () => void; onDelete: (n: Note) => void
 }) {
   const [title, setTitle] = useState(note.title)
   const [body, setBody] = useState(note.body)
@@ -203,11 +253,8 @@ function NoteEditor({ note, people, currentUserId, isTeamNote, onBack, onChanged
 
   const save = useCallback(async (patch: Record<string, unknown>) => {
     setSaved(false); setSaveError('')
-    const r = await fetch(`/api/notes/${note.id}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
-    })
-    if (r.ok) { setSaved(true); onChanged() }
-    else { setSaveError('Save failed.'); setSaved(true) }
+    const r = await fetch(`/api/notes/${note.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) })
+    if (r.ok) { setSaved(true); onChanged() } else { setSaveError('Save failed.'); setSaved(true) }
   }, [note.id, onChanged])
 
   function triggerSave(patch: Record<string, unknown>) {
@@ -216,40 +263,23 @@ function NoteEditor({ note, people, currentUserId, isTeamNote, onBack, onChanged
     saveTimer.current = setTimeout(() => save(patch), 700)
   }
 
-  async function del() {
-    if (!confirm('Delete this note?')) return
-    await fetch(`/api/notes/${note.id}`, { method: 'DELETE' }); onBack()
-  }
   async function togglePin() { const v = !pinned; setPinned(v); await save({ pinned: v }) }
 
   return (
     <div className="max-w-3xl mx-auto">
       <div className="flex items-center justify-between mb-4">
-        <button onClick={onBack} className="text-sm text-gray-500 hover:text-navy-700 flex items-center gap-1.5">
-          <ArrowLeft className="w-4 h-4" /> Notes
-        </button>
+        <button onClick={onBack} className="text-sm text-gray-500 hover:text-navy-700 flex items-center gap-1.5"><ArrowLeft className="w-4 h-4" /> Notes</button>
         <div className="flex items-center gap-2">
-          {isTeamNote && (
-            <span className="text-xs text-teal-600 bg-teal-50 border border-teal-200 rounded-full px-2.5 py-0.5 flex items-center gap-1">
-              <Globe className="w-3 h-3" /> Team note
-            </span>
-          )}
+          {isTeamNote && <span className="text-xs text-teal-600 bg-teal-50 border border-teal-200 rounded-full px-2.5 py-0.5 flex items-center gap-1"><Globe className="w-3 h-3" /> Team note</span>}
           <span className="text-xs text-gray-400">{saveError ? <span className="text-red-500">{saveError}</span> : saved ? 'Saved' : 'Saving…'}</span>
-          {!readOnly && <button onClick={togglePin} title={pinned ? 'Unpin' : 'Pin'} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">{pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}</button>}
-          {!isTeamNote && note.mine && <button onClick={() => setShowShare(s => !s)} title="Share" className={`p-1.5 rounded-lg hover:bg-gray-100 ${showShare ? 'text-teal-600 bg-teal-50' : 'text-gray-500'}`}><Share2 className="w-4 h-4" /></button>}
-          {(note.mine || isTeamNote) && <button onClick={del} title="Delete" className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>}
+          {!readOnly && <button onClick={togglePin} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">{pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}</button>}
+          {!isTeamNote && note.mine && <button onClick={() => setShowShare(s => !s)} className={`p-1.5 rounded-lg hover:bg-gray-100 ${showShare ? 'text-teal-600 bg-teal-50' : 'text-gray-500'}`}><Share2 className="w-4 h-4" /></button>}
+          <button onClick={() => onDelete(note)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
         </div>
       </div>
-
       {showShare && !isTeamNote && note.mine && <SharePanel noteId={note.id} people={people} currentUserId={currentUserId} />}
-
       <div className="bg-white border border-gray-200 rounded-2xl p-6">
-        <input
-          value={title} disabled={readOnly}
-          onChange={e => { setTitle(e.target.value); triggerSave({ title: e.target.value }) }}
-          placeholder="Note title"
-          className="w-full text-2xl font-bold text-navy-700 border-0 outline-none mb-4 bg-transparent placeholder:text-gray-300"
-        />
+        <input value={title} disabled={readOnly} onChange={e => { setTitle(e.target.value); triggerSave({ title: e.target.value }) }} placeholder="Note title" className="w-full text-2xl font-bold text-navy-700 border-0 outline-none mb-4 bg-transparent placeholder:text-gray-300" />
         <MentionTextarea
           value={body} disabled={readOnly} people={people} minRows={12}
           placeholder={isTeamNote ? 'Write for your team… type @ to mention someone' : 'Write anything… type @ to mention someone'}
@@ -262,57 +292,24 @@ function NoteEditor({ note, people, currentUserId, isTeamNote, onBack, onChanged
   )
 }
 
-// ─── Share panel (personal notes only) ───────────────────────────────────────
+// ─── Share panel ──────────────────────────────────────────────────────────────
 
 function SharePanel({ noteId, people, currentUserId }: { noteId: string; people: Person[]; currentUserId: string }) {
   const [shares, setShares] = useState<{ user_id: string; can_edit: boolean; profiles?: { full_name: string | null } | null }[]>([])
   const [busy, setBusy] = useState(false)
-
   const load = useCallback(async () => {
-    const r = await fetch(`/api/notes/${noteId}/share`)
-    if (r.ok) setShares((await r.json()).shares ?? [])
+    const r = await fetch(`/api/notes/${noteId}/share`); if (r.ok) setShares((await r.json()).shares ?? [])
   }, [noteId])
   useEffect(() => { load() }, [load])
-
-  async function share(userId: string, canEdit: boolean) {
-    setBusy(true)
-    await fetch(`/api/notes/${noteId}/share`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, canEdit }) })
-    await load(); setBusy(false)
-  }
-  async function unshare(userId: string) {
-    setBusy(true)
-    await fetch(`/api/notes/${noteId}/share`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId }) })
-    await load(); setBusy(false)
-  }
-
+  async function share(userId: string, canEdit: boolean) { setBusy(true); await fetch(`/api/notes/${noteId}/share`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, canEdit }) }); await load(); setBusy(false) }
+  async function unshare(userId: string) { setBusy(true); await fetch(`/api/notes/${noteId}/share`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId }) }); await load(); setBusy(false) }
   const sharedIds = new Set(shares.map(s => s.user_id))
   const available = people.filter(p => p.id !== currentUserId && !sharedIds.has(p.id))
-
   return (
     <div className="bg-white border border-teal-200 rounded-2xl p-4 mb-4">
       <p className="text-sm font-semibold text-navy-700 mb-3 flex items-center gap-2"><Lock className="w-4 h-4 text-teal-500" /> Share this note</p>
-      {shares.length > 0 && (
-        <div className="space-y-1.5 mb-3">
-          {shares.map(s => (
-            <div key={s.user_id} className="flex items-center justify-between text-sm bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-              <span className="font-medium text-navy-700">{s.profiles?.full_name ?? 'User'}</span>
-              <div className="flex items-center gap-2">
-                <button onClick={() => share(s.user_id, !s.can_edit)} disabled={busy} className="text-xs px-2 py-0.5 rounded-full border border-gray-200 text-gray-600 hover:bg-gray-100">{s.can_edit ? 'Can edit' : 'View only'}</button>
-                <button onClick={() => unshare(s.user_id)} disabled={busy} className="text-gray-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      {available.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {available.map(p => (
-            <button key={p.id} onClick={() => share(p.id, false)} disabled={busy} className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-gray-100 hover:bg-teal-50 hover:text-teal-700 text-gray-600 transition-colors">
-              <Plus className="w-3 h-3" />{p.full_name ?? 'User'}
-            </button>
-          ))}
-        </div>
-      ) : shares.length === 0 ? <p className="text-xs text-gray-400 italic">No one else to share with.</p> : null}
+      {shares.length > 0 && <div className="space-y-1.5 mb-3">{shares.map(s => (<div key={s.user_id} className="flex items-center justify-between text-sm bg-gray-50 border border-gray-200 rounded-lg px-3 py-2"><span className="font-medium text-navy-700">{s.profiles?.full_name ?? 'User'}</span><div className="flex items-center gap-2"><button onClick={() => share(s.user_id, !s.can_edit)} disabled={busy} className="text-xs px-2 py-0.5 rounded-full border border-gray-200 text-gray-600 hover:bg-gray-100">{s.can_edit ? 'Can edit' : 'View only'}</button><button onClick={() => unshare(s.user_id)} disabled={busy} className="text-gray-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button></div></div>))}</div>}
+      {available.length > 0 ? <div className="flex flex-wrap gap-1.5">{available.map(p => (<button key={p.id} onClick={() => share(p.id, false)} disabled={busy} className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-gray-100 hover:bg-teal-50 hover:text-teal-700 text-gray-600 transition-colors"><Plus className="w-3 h-3" />{p.full_name ?? 'User'}</button>))}</div> : shares.length === 0 ? <p className="text-xs text-gray-400 italic">No one else to share with.</p> : null}
       {busy && <p className="text-xs text-gray-400 mt-2 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Saving…</p>}
     </div>
   )
@@ -320,15 +317,17 @@ function SharePanel({ noteId, people, currentUserId }: { noteId: string; people:
 
 // ─── To-dos section ───────────────────────────────────────────────────────────
 
-function TodosSection({ todos, people, teams, currentTeamId, onRefresh, loading, space }: {
-  todos: Todo[]; people: Person[]; teams: Team[]
-  currentTeamId: string | null; onRefresh: () => void
-  loading: boolean; space: Space
+function TodosSection({ todos, trashTodos, people, teams, currentTeamId, currentUserId, onRefresh, loading, onDelete, onRestore }: {
+  todos: Todo[]; trashTodos: Todo[]; people: Person[]; teams: Team[]
+  currentTeamId: string | null; currentUserId: string
+  onRefresh: () => void; loading: boolean
+  onDelete: (t: Todo) => void; onRestore: (id: string) => void
 }) {
   const [input, setInput] = useState('')
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [showTrash, setShowTrash] = useState(false)
 
   async function add() {
     const text = input.trim(); if (!text || adding) return
@@ -338,20 +337,14 @@ function TodosSection({ todos, people, teams, currentTeamId, onRefresh, loading,
       const d = await r.json()
       if (!r.ok) { setAddError(d.error ?? 'Could not parse that.'); return }
       const draft = d.draft
-      // If in team space, create as team todo
-      const c = await fetch('/api/todos', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: draft.title, detail: draft.detail, dueDate: draft.dueDate, priority: draft.priority, assigneeId: draft.assigneeId, teamId: currentTeamId }),
-      })
-      if (c.ok) { setInput(''); onRefresh() }
-      else setAddError((await c.json()).error ?? 'Could not save.')
+      const c = await fetch('/api/todos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: draft.title, detail: draft.detail, dueDate: draft.dueDate, priority: draft.priority, assigneeId: draft.assigneeId, teamId: currentTeamId }) })
+      if (c.ok) { setInput(''); onRefresh() } else setAddError((await c.json()).error ?? 'Could not save.')
     } catch { setAddError('Network error.') } finally { setAdding(false) }
   }
 
   async function patch(id: string, body: Record<string, unknown>) {
     await fetch(`/api/todos/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); onRefresh()
   }
-  async function del(id: string) { await fetch(`/api/todos/${id}`, { method: 'DELETE' }); onRefresh() }
 
   const open = todos.filter(t => t.status === 'open')
   const done = todos.filter(t => t.status === 'done')
@@ -361,12 +354,9 @@ function TodosSection({ todos, people, teams, currentTeamId, onRefresh, loading,
       <div className="bg-white border border-gray-200 rounded-2xl p-4">
         <div className="flex items-end gap-3">
           <div className="flex-1">
-            <textarea
-              value={input} onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); add() } }}
-              rows={2} placeholder={currentTeamId ? `Add a team task… e.g. "update check-in instructions by Friday"` : `Add a task… e.g. "chase Sonali about 306 tomorrow — high priority"`}
-              className="w-full resize-none text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-teal-500"
-            />
+            <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); add() } }} rows={2}
+              placeholder={currentTeamId ? `Add a team task… e.g. "update check-in instructions by Friday"` : `Add a task… e.g. "chase Sonali about 306 tomorrow — high priority"`}
+              className="w-full resize-none text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-teal-500" />
             <p className="text-[11px] text-gray-400 mt-1">Press Enter or click Add — AI fills in date, priority and assignee.</p>
           </div>
           <button onClick={add} disabled={!input.trim() || adding} className="h-10 px-4 flex-shrink-0 rounded-xl bg-teal-600 text-white text-sm font-medium flex items-center gap-2 hover:bg-teal-700 disabled:opacity-40">
@@ -376,26 +366,15 @@ function TodosSection({ todos, people, teams, currentTeamId, onRefresh, loading,
         {addError && <p className="text-xs text-red-500 mt-2">{addError}</p>}
       </div>
 
-      {loading ? <SpinnerRow /> : (
-        <>
-          {open.length === 0 && done.length === 0 && (
-            <Empty label={currentTeamId ? 'No team to-dos yet. Add one above.' : 'No personal to-dos. Add one above.'} />
-          )}
-          {open.length > 0 && (
-            <div className="space-y-2">
-              {open.map(t => <TodoRow key={t.id} t={t} people={people} teams={teams} expanded={expanded === t.id} onExpand={() => setExpanded(expanded === t.id ? null : t.id)} onToggle={() => patch(t.id, { status: 'done' })} onPatch={b => patch(t.id, b)} onDelete={() => del(t.id)} />)}
-            </div>
-          )}
-          {done.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Completed ({done.length})</p>
-              <div className="space-y-2">
-                {done.map(t => <TodoRow key={t.id} t={t} people={people} teams={teams} expanded={expanded === t.id} onExpand={() => setExpanded(expanded === t.id ? null : t.id)} onToggle={() => patch(t.id, { status: 'open' })} onPatch={b => patch(t.id, b)} onDelete={() => del(t.id)} />)}
-              </div>
-            </div>
-          )}
-        </>
-      )}
+      {loading ? <SpinnerRow /> : <>
+        {open.length === 0 && done.length === 0 && <Empty label={currentTeamId ? 'No team to-dos yet.' : 'No personal to-dos. Add one above.'} />}
+        {open.length > 0 && <div className="space-y-2">{open.map(t => <TodoRow key={t.id} t={t} people={people} teams={teams} expanded={expanded === t.id} onExpand={() => setExpanded(expanded === t.id ? null : t.id)} onToggle={() => patch(t.id, { status: 'done' })} onPatch={b => patch(t.id, b)} onDelete={() => onDelete(t)} />)}</div>}
+        {done.length > 0 && <div>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Completed ({done.length})</p>
+          <div className="space-y-2">{done.map(t => <TodoRow key={t.id} t={t} people={people} teams={teams} expanded={expanded === t.id} onExpand={() => setExpanded(expanded === t.id ? null : t.id)} onToggle={() => patch(t.id, { status: 'open' })} onPatch={b => patch(t.id, b)} onDelete={() => onDelete(t)} />)}</div>
+        </div>}
+        <TrashSection show={showTrash} onToggle={() => setShowTrash(s => !s)} trashNotes={[]} trashTodos={trashTodos} onRestoreTodo={onRestore} />
+      </>}
     </div>
   )
 }
@@ -407,7 +386,7 @@ function TodoRow({ t, people, teams, expanded, onExpand, onToggle, onPatch, onDe
   const done = t.status === 'done'
   const isOverdue = t.due_date && !done && new Date(t.due_date) < new Date()
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl">
+    <div className="bg-white border border-gray-200 rounded-2xl group">
       <div className="flex items-start gap-3 p-4">
         <button onClick={onToggle} className={`mt-0.5 w-5 h-5 rounded-full border flex-shrink-0 flex items-center justify-center transition-colors ${done ? 'bg-teal-500 border-teal-500' : 'border-gray-300 hover:border-teal-400'}`}>
           {done ? <Check className="w-3 h-3 text-white" /> : <Circle className="w-3 h-3 text-transparent" />}
@@ -420,35 +399,61 @@ function TodoRow({ t, people, teams, expanded, onExpand, onToggle, onPatch, onDe
             {t.due_date && <span className={`flex items-center gap-1 ${isOverdue ? 'text-red-500 font-medium' : ''}`}><Calendar className="w-3 h-3" />{t.due_date}{isOverdue ? ' — overdue' : ''}</span>}
             {t.assigneeName && <span className="flex items-center gap-1 text-teal-600">{t.assignedToMe ? '→ You' : `→ ${t.assigneeName}`}</span>}
             {t.teamName && <span className="flex items-center gap-1"><Users className="w-3 h-3" />{t.teamName}</span>}
+            {!t.mine && t.ownerName && <span className="flex items-center gap-1 text-gray-400">by {t.ownerName}</span>}
           </div>
         </div>
-        <button onClick={onExpand} className="p-1 text-gray-300 hover:text-gray-600 mt-0.5"><ChevronDown className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} /></button>
+        {/* Quick delete — always visible on hover */}
+        <button onClick={onDelete} title="Delete" className="p-1.5 rounded-lg text-gray-200 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0">
+          <Trash2 className="w-4 h-4" />
+        </button>
+        <button onClick={onExpand} className="p-1.5 text-gray-300 hover:text-gray-600 flex-shrink-0"><ChevronDown className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} /></button>
       </div>
       {expanded && (
         <div className="border-t border-gray-100 p-4 bg-slate-50 rounded-b-2xl grid sm:grid-cols-2 gap-3">
-          <label className="block text-xs text-gray-500">Priority
-            <select value={t.priority} onChange={e => onPatch({ priority: e.target.value })} className="w-full mt-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white">
-              <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
-            </select>
-          </label>
-          <label className="block text-xs text-gray-500">Due date
-            <input type="date" value={t.due_date ?? ''} onChange={e => onPatch({ dueDate: e.target.value || null })} className="w-full mt-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white" />
-          </label>
-          <label className="block text-xs text-gray-500">Assign to
-            <select value={t.assignee_id ?? ''} onChange={e => onPatch({ assigneeId: e.target.value || null })} className="w-full mt-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white">
-              <option value="">Nobody</option>
-              {people.map(p => <option key={p.id} value={p.id}>{p.full_name ?? 'User'}</option>)}
-            </select>
-          </label>
-          <label className="block text-xs text-gray-500">Team list
-            <select value={t.team_id ?? ''} onChange={e => onPatch({ teamId: e.target.value || null })} className="w-full mt-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white">
-              <option value="">Personal</option>
-              {teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
-            </select>
-          </label>
-          <div className="sm:col-span-2 flex justify-end">
-            <button onClick={onDelete} className="text-xs text-gray-400 hover:text-red-600 flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" /> Delete</button>
-          </div>
+          <label className="block text-xs text-gray-500">Priority<select value={t.priority} onChange={e => onPatch({ priority: e.target.value })} className="w-full mt-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+          <label className="block text-xs text-gray-500">Due date<input type="date" value={t.due_date ?? ''} onChange={e => onPatch({ dueDate: e.target.value || null })} className="w-full mt-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white" /></label>
+          <label className="block text-xs text-gray-500">Assign to<select value={t.assignee_id ?? ''} onChange={e => onPatch({ assigneeId: e.target.value || null })} className="w-full mt-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white"><option value="">Nobody</option>{people.map(p => <option key={p.id} value={p.id}>{p.full_name ?? 'User'}</option>)}</select></label>
+          <label className="block text-xs text-gray-500">Team list<select value={t.team_id ?? ''} onChange={e => onPatch({ teamId: e.target.value || null })} className="w-full mt-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white"><option value="">Personal</option>{teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}</select></label>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Trash section ────────────────────────────────────────────────────────────
+
+function TrashSection({ show, onToggle, trashNotes, trashTodos, onRestoreNote, onRestoreTodo }: {
+  show: boolean; onToggle: () => void
+  trashNotes: Note[]; trashTodos: Todo[]
+  onRestoreNote?: (id: string) => void; onRestoreTodo?: (id: string) => void
+}) {
+  const total = trashNotes.length + trashTodos.length
+  if (total === 0) return null
+  return (
+    <div className="mt-6">
+      <button onClick={onToggle} className="flex items-center gap-2 text-xs text-gray-400 hover:text-gray-600 font-medium mb-2">
+        <Trash2 className="w-3.5 h-3.5" /> Trash ({total}) <ChevronDown className={`w-3.5 h-3.5 transition-transform ${show ? 'rotate-180' : ''}`} />
+      </button>
+      {show && (
+        <div className="bg-gray-50 border border-dashed border-gray-200 rounded-2xl p-4 space-y-2">
+          {trashNotes.map(n => (
+            <div key={n.id} className="flex items-center justify-between gap-3 bg-white border border-gray-200 rounded-xl px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-sm text-gray-500 line-through truncate">{n.title || 'Untitled'}</p>
+                {n.deletedByName && <p className="text-xs text-gray-400">Deleted by {n.deletedByName} · {n.deleted_at ? new Date(n.deleted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}</p>}
+              </div>
+              <button onClick={() => onRestoreNote?.(n.id)} className="flex items-center gap-1 text-xs text-teal-600 hover:text-teal-700 flex-shrink-0"><RotateCcw className="w-3.5 h-3.5" /> Restore</button>
+            </div>
+          ))}
+          {trashTodos.map(t => (
+            <div key={t.id} className="flex items-center justify-between gap-3 bg-white border border-gray-200 rounded-xl px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-sm text-gray-500 line-through truncate">{t.title}</p>
+                {t.deletedByName && <p className="text-xs text-gray-400">Deleted by {t.deletedByName} · {t.deleted_at ? new Date(t.deleted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}</p>}
+              </div>
+              <button onClick={() => onRestoreTodo?.(t.id)} className="flex items-center gap-1 text-xs text-teal-600 hover:text-teal-700 flex-shrink-0"><RotateCcw className="w-3.5 h-3.5" /> Restore</button>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -458,21 +463,12 @@ function TodoRow({ t, people, teams, expanded, onExpand, onToggle, onPatch, onDe
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function SpaceBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick} className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors ${active ? 'bg-navy-700 text-white border-navy-700' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}>
-      {children}
-    </button>
-  )
+  return <button onClick={onClick} className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors ${active ? 'bg-navy-700 text-white border-navy-700' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}>{children}</button>
 }
 function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick} className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${active ? 'bg-teal-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
-      {children}
-    </button>
-  )
+  return <button onClick={onClick} className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${active ? 'bg-teal-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>{children}</button>
 }
 function SpinnerRow() { return <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-gray-300" /></div> }
 function Empty({ label }: { label: string }) { return <p className="text-center text-sm text-gray-400 py-16 bg-white border border-dashed border-gray-200 rounded-2xl">{label}</p> }
 
-// re-export for hub use
 export { SharePanel }

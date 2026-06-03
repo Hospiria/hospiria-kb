@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { requireFeature } from '@/lib/permissions-guard'
 import { NextResponse } from 'next/server'
 
@@ -7,12 +7,9 @@ interface TodoRow {
   title: string; detail: string | null; due_date: string | null
   priority: 'low' | 'medium' | 'high'; status: 'open' | 'done'
   updated_at: string; created_at: string
+  deleted_at: string | null; deleted_by: string | null
 }
 
-// GET — to-dos filtered by space.
-//   ?space=personal  → todos where team_id IS NULL (mine + assigned to me)
-//   ?teamId=<uuid>   → todos for that team
-//   (no param)       → all visible todos (RLS scopes)
 export async function GET(request: Request) {
   const auth = await requireFeature('notes', 'view')
   if ('error' in auth) return auth.error
@@ -21,10 +18,11 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const space = searchParams.get('space')
   const teamId = searchParams.get('teamId')
+  const trash = searchParams.get('trash') === 'true'
 
   let query = supabase
     .from('todos')
-    .select('id, owner_id, assignee_id, team_id, title, detail, due_date, priority, status, updated_at, created_at')
+    .select('id, owner_id, assignee_id, team_id, title, detail, due_date, priority, status, updated_at, created_at, deleted_at, deleted_by')
     .order('status', { ascending: true })
     .order('due_date', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: false })
@@ -32,15 +30,23 @@ export async function GET(request: Request) {
   if (space === 'personal') query = query.is('team_id', null)
   else if (teamId) query = query.eq('team_id', teamId)
 
+  if (trash) query = query.not('deleted_at', 'is', null)
+  else query = query.is('deleted_at', null)
+
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   const rows = (data ?? []) as TodoRow[]
-  // Resolve owner/assignee names + team names for display.
-  const userIds = [...new Set(rows.flatMap(t => [t.owner_id, t.assignee_id]).filter(Boolean) as string[])]
+
+  // Resolve all referenced user IDs (owner, assignee, deleter)
+  const userIds = [...new Set(rows.flatMap(t =>
+    [t.owner_id, t.assignee_id, t.deleted_by].filter(Boolean) as string[]
+  ))]
   const teamIds = [...new Set(rows.map(t => t.team_id).filter(Boolean) as string[])]
+
+  const db = createServiceClient()
   const [{ data: people }, { data: teams }] = await Promise.all([
-    userIds.length ? supabase.from('profiles').select('id, full_name').in('id', userIds) : Promise.resolve({ data: [] }),
+    userIds.length ? db.from('profiles').select('id, full_name').in('id', userIds) : Promise.resolve({ data: [] }),
     teamIds.length ? supabase.from('teams').select('id, name').in('id', teamIds) : Promise.resolve({ data: [] }),
   ])
   const nameById = new Map((people ?? []).map((p: { id: string; full_name: string | null }) => [p.id, p.full_name]))
@@ -53,11 +59,11 @@ export async function GET(request: Request) {
     ownerName: nameById.get(t.owner_id) ?? null,
     assigneeName: t.assignee_id ? nameById.get(t.assignee_id) ?? null : null,
     teamName: t.team_id ? teamById.get(t.team_id) ?? null : null,
+    deletedByName: t.deleted_by ? nameById.get(t.deleted_by) ?? null : null,
   }))
   return NextResponse.json({ todos })
 }
 
-// POST — create a to-do; notify the assignee if it's someone else.
 export async function POST(request: Request) {
   const auth = await requireFeature('notes', 'edit')
   if ('error' in auth) return auth.error
