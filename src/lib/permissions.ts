@@ -11,6 +11,7 @@ export type FeatureKey =
   | 'approve_sops'
   | 'quizzes'
   | 'chat'
+  | 'notes'
   | 'companies'
   | 'platforms'
   | 'teams'
@@ -44,6 +45,7 @@ export interface FeatureDef {
 export const FEATURES: FeatureDef[] = [
   { key: 'dashboard', label: 'Dashboard', group: 'Core', hasView: true, hasEdit: false, viewHint: 'See the dashboard' },
   { key: 'chat', label: 'Chat assistant', group: 'Core', hasView: true, hasEdit: false, viewHint: 'Use the assistant' },
+  { key: 'notes', label: 'Notes & to-dos', group: 'Core', hasView: true, hasEdit: true, viewHint: 'Open the notes/to-do hub', editHint: 'Create & edit notes and to-dos' },
   { key: 'sops', label: 'SOPs / Library', group: 'SOPs', hasView: true, hasEdit: true, viewHint: 'Read SOPs', editHint: 'Create & edit SOPs' },
   { key: 'approve_sops', label: 'Approve SOPs', group: 'SOPs', hasView: true, hasEdit: true, viewHint: 'See submissions', editHint: 'Approve / reject' },
   { key: 'quizzes', label: 'Courses & Quizzes', group: 'Learning', hasView: true, hasEdit: true, viewHint: 'Take assigned quizzes', editHint: 'Create & manage quizzes' },
@@ -82,21 +84,21 @@ const NONE: Perm = { view: false, edit: false }
 // falls back to NONE.
 export const DEFAULT_ROLE_PERMISSIONS: Record<Role, Partial<Record<FeatureKey, Perm>>> = {
   super_admin: {
-    dashboard: VIEW, chat: VIEW, sops: ALL, approve_sops: ALL, quizzes: ALL,
+    dashboard: VIEW, chat: VIEW, notes: ALL, sops: ALL, approve_sops: ALL, quizzes: ALL,
     users: ALL, teams: ALL, companies: ALL, platforms: ALL,
     import_sops: ALL, import_clickup: ALL, autotag: ALL, ai_training: ALL,
   },
   approver: {
-    dashboard: VIEW, chat: VIEW, sops: ALL, approve_sops: ALL, quizzes: VIEW,
+    dashboard: VIEW, chat: VIEW, notes: ALL, sops: ALL, approve_sops: ALL, quizzes: VIEW,
   },
   team_leader: {
-    dashboard: VIEW, chat: VIEW, sops: ALL, approve_sops: ALL, quizzes: VIEW,
+    dashboard: VIEW, chat: VIEW, notes: ALL, sops: ALL, approve_sops: ALL, quizzes: VIEW,
   },
   junior_team_leader: {
-    dashboard: VIEW, chat: VIEW, sops: ALL, approve_sops: NONE, quizzes: VIEW,
+    dashboard: VIEW, chat: VIEW, notes: ALL, sops: ALL, approve_sops: NONE, quizzes: VIEW,
   },
   agent: {
-    dashboard: VIEW, chat: VIEW, sops: VIEW, approve_sops: NONE, quizzes: VIEW,
+    dashboard: VIEW, chat: VIEW, notes: ALL, sops: VIEW, approve_sops: NONE, quizzes: VIEW,
   },
 }
 

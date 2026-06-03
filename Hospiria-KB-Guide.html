@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hospiria Knowledge Base — Feature &amp; Admin Guide</title>
+<style>
+  :root {
+    --teal: #0d9488;
+    --teal-dark: #0f766e;
+    --teal-50: #f0fdfa;
+    --slate-900: #0f172a;
+    --slate-700: #334155;
+    --slate-500: #64748b;
+    --slate-400: #94a3b8;
+    --slate-200: #e2e8f0;
+    --slate-100: #f1f5f9;
+    --amber-50: #fffbeb;
+    --amber-200: #fde68a;
+    --amber-800: #92400e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--slate-700); line-height: 1.6; margin: 0; background: #f8fafc;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 840px; margin: 0 auto; padding: 48px 24px 80px; }
+  header.title { border-bottom: 3px solid var(--teal); padding-bottom: 20px; margin-bottom: 28px; }
+  .eyebrow { text-transform: uppercase; letter-spacing: 0.08em; font-size: 12px; font-weight: 700; color: var(--teal); margin: 0 0 6px; }
+  h1 { font-size: 30px; line-height: 1.2; color: var(--slate-900); margin: 0 0 8px; }
+  .sub { font-size: 16px; color: var(--slate-500); margin: 0; }
+  h2 { font-size: 22px; color: var(--slate-900); margin: 42px 0 12px; padding-top: 8px; scroll-margin-top: 20px; }
+  h2 .nbr { color: var(--teal); font-weight: 800; margin-right: 8px; }
+  h3 { font-size: 16px; color: var(--slate-900); margin: 20px 0 6px; }
+  p { margin: 0 0 14px; }
+  ul, ol { margin: 0 0 14px; padding-left: 22px; }
+  li { margin: 6px 0; }
+  strong { color: var(--slate-900); }
+  a { color: var(--teal-dark); }
+  .lead { font-size: 17px; background: var(--teal-50); border: 1px solid #99f6e4; border-radius: 12px; padding: 18px 20px; }
+  .card { background: #fff; border: 1px solid var(--slate-200); border-radius: 12px; padding: 20px 22px; margin: 16px 0; }
+  .privacy { background: #fff; border: 1px solid #99f6e4; border-left: 5px solid var(--teal); border-radius: 12px; padding: 20px 22px; margin: 16px 0; }
+  .note { background: var(--amber-50); border: 1px solid var(--amber-200); border-radius: 10px; padding: 14px 16px; font-size: 15px; color: var(--amber-800); margin: 16px 0; }
+  .toc { background: #fff; border: 1px solid var(--slate-200); border-radius: 12px; padding: 18px 22px; }
+  .toc ol { margin: 0; padding-left: 20px; }
+  .toc a { text-decoration: none; font-weight: 600; }
+  .meta { display:flex; gap:8px; flex-wrap:wrap; margin: 4px 0 14px; }
+  .pill { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; letter-spacing: .02em; }
+  .pill-admin { background: #fef3c7; color: var(--amber-800); }
+  .pill-all { background: #dcfce7; color: #166534; }
+  .pill-where { background: var(--slate-100); color: var(--slate-500); }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 18px; font-size: 15px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--slate-200); vertical-align: top; }
+  th { color: var(--slate-900); font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .tag { display:inline-block; font-size:13px; font-weight:600; padding:2px 10px; border-radius:999px; margin-right:4px; white-space:nowrap; }
+  .tag-new { background:#dcfce7; color:#166534; } .tag-update { background:#fef3c7; color:var(--amber-800); }
+  .tag-exists { background:var(--slate-100); color:var(--slate-500); } .tag-behaviour { background:var(--teal-50); color:var(--teal-dark); }
+  .step { display:flex; gap:16px; padding:12px 0; border-bottom:1px solid var(--slate-100); }
+  .step:last-child { border-bottom:none; }
+  .num { flex:0 0 30px; height:30px; width:30px; background:var(--teal); color:#fff; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:14px; }
+  .step-body { flex:1; } .step-body p { margin:0; } .step-body .hint { font-size:14px; color:var(--slate-500); margin-top:4px; }
+  footer { margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--slate-200); font-size: 13px; color: var(--slate-400); }
+  @media print { body { background:#fff; } .wrap { padding:0; max-width:100%; } .card,.privacy,.lead,.toc { break-inside: avoid; } h2 { break-after: avoid; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="title">
+    <p class="eyebrow">Hospiria Knowledge Base &middot; Feature &amp; Admin Guide</p>
+    <h1>What the Knowledge Base can do</h1>
+    <p class="sub">A plain-English tour of everything that's been built — for managers and admins.</p>
+  </header>
+
+  <p class="lead">
+    The Hospiria Knowledge Base is where the team finds how we do things. On top of standard SOP articles,
+    it now has: a <strong>tagging system</strong> for clients and software, <strong>fast search and browsing</strong>,
+    an <strong>AI chat assistant</strong> that answers from our SOPs, a tool that <strong>auto-assigns SOPs to clients</strong>,
+    and an <strong>AI Training</strong> area where we teach the assistant our ways and turn real team chats into knowledge.
+    This guide walks through each one.
+  </p>
+
+  <div class="note">
+    <strong>Who can see what.</strong> Everyone who is signed in can browse SOPs, use search, and use the chat assistant.
+    The <strong>Admin</strong> sections (Companies, Platforms, Import, Auto-tag, AI Training, Users) are
+    <strong>admin-only</strong>. What SOPs a person sees also depends on their role &mdash; front-line agents only see
+    published ("live") SOPs, while managers/admins can see drafts too.
+  </div>
+
+  <div class="toc">
+    <strong>In this guide</strong>
+    <ol>
+      <li><a href="#companies">Companies &amp; Platforms (tagging)</a></li>
+      <li><a href="#search">Browsing &amp; search</a></li>
+      <li><a href="#chat">The AI chat assistant</a></li>
+      <li><a href="#autotag">Auto-assigning SOPs to clients</a></li>
+      <li><a href="#behaviour">AI Training &mdash; teaching the assistant</a></li>
+      <li><a href="#ingest">Teach from conversations (WhatsApp &rarr; knowledge)</a></li>
+    </ol>
+  </div>
+
+  <!-- 1 -->
+  <h2 id="companies"><span class="nbr">1.</span>Companies &amp; Platforms</h2>
+  <div class="meta">
+    <span class="pill pill-admin">Admin only</span>
+    <span class="pill pill-where">Admin &rarr; Companies / Platforms</span>
+  </div>
+  <p>
+    Two kinds of label you can attach to any SOP so the right knowledge reaches the right place:
+  </p>
+  <ul>
+    <li><strong>Companies</strong> &mdash; the client or brand an SOP is for (e.g. Get Living, Under The Doormat). An SOP can belong to several.</li>
+    <li><strong>Platforms</strong> &mdash; the software or channel an SOP relates to (e.g. PriceLabs, Rentals United, Airbnb).</li>
+  </ul>
+  <p>
+    Manage them under <strong>Admin &rarr; Companies</strong> and <strong>Admin &rarr; Platforms</strong>: add, rename,
+    deactivate, or delete tags. There's a <strong>CSV import</strong> for adding a long list of names in one go
+    (one name per line), which automatically skips duplicates.
+  </p>
+  <div class="note">
+    <strong>Tip:</strong> prefer <em>Deactivate</em> over <em>Delete</em>. Deactivating hides a tag from the dropdowns
+    but keeps it on past SOPs; deleting removes it from every SOP permanently.
+  </div>
+
+  <!-- 2 -->
+  <h2 id="search"><span class="nbr">2.</span>Browsing &amp; search</h2>
+  <div class="meta">
+    <span class="pill pill-all">All users</span>
+    <span class="pill pill-where">All SOPs page + left sidebar</span>
+  </div>
+  <p>
+    Find SOPs two ways: <strong>type to search</strong>, or <strong>filter/browse</strong>.
+  </p>
+  <ul>
+    <li><strong>Live search</strong> on the All SOPs page updates results as you type. It matches both
+    <em>partial words in titles</em> (typing &ldquo;hand&rdquo; finds &ldquo;Handling&hellip;&rdquo;) <em>and</em> words anywhere in the
+    article body, so you catch things whether you remember the title or just a phrase inside.</li>
+    <li><strong>Filter bar</strong> &mdash; narrow by Team, Company, Platform, and (for managers/admins) draft vs live Status. Filters combine.</li>
+    <li><strong>Sidebar browsing</strong> &mdash; the Library section lists Companies and Platforms; click one to see its SOPs.
+    Each list has its own search box for when there are many.</li>
+  </ul>
+
+  <!-- 3 -->
+  <h2 id="chat"><span class="nbr">3.</span>The AI chat assistant</h2>
+  <div class="meta">
+    <span class="pill pill-all">All users</span>
+    <span class="pill pill-where">Floating bubble, bottom-right of every page</span>
+  </div>
+  <p>
+    A chat bubble that answers questions using our SOPs &mdash; like asking a knowledgeable colleague.
+    Key things it does:
+  </p>
+  <ul>
+    <li><strong>Answers from our SOPs</strong> and shows <strong>clickable source links</strong> so you can verify where an answer came from.</li>
+    <li><strong>Client-aware.</strong> Because processes differ per client, it will <strong>ask which company you mean</strong>
+    before giving a process-specific answer, and can <strong>draft a ready-to-send guest message</strong> in that client's tone.</li>
+    <li><strong>Stays grounded</strong> &mdash; it's instructed never to invent fees or times, and to say so (and suggest escalating)
+    when no SOP covers your question.</li>
+    <li>Replies are nicely formatted (bold, bullets, numbered steps). Your <strong>chat history is saved and private to you</strong>;
+    you can start a new chat any time.</li>
+  </ul>
+  <div class="note"><strong>Good to know:</strong> the assistant is only as good as the SOPs it can find. If a topic
+  isn't documented for a client, it will say so rather than guess.</div>
+
+  <!-- 4 -->
+  <h2 id="autotag"><span class="nbr">4.</span>Auto-assigning SOPs to clients</h2>
+  <div class="meta">
+    <span class="pill pill-admin">Admin only</span>
+    <span class="pill pill-where">Admin &rarr; Auto-tag SOPs</span>
+  </div>
+  <p>
+    A time-saver for tagging a big back-catalogue of SOPs to the right Company. Instead of opening each SOP by hand,
+    it scans them for you and lets you approve in bulk.
+  </p>
+  <div class="card">
+    <div class="step"><div class="num">1</div><div class="step-body">
+      <p><strong>Scan.</strong> It reads every SOP that has no company yet and looks for client names in the title and text,
+      sorting them into <strong>Confident</strong> (pre-ticked), <strong>Needs review</strong> (a likely guess), and <strong>No match</strong>.</p>
+    </div></div>
+    <div class="step"><div class="num">2</div><div class="step-body">
+      <p><strong>Optional AI pass.</strong> For the leftovers with no obvious name match, you can run an AI step that
+      reads them and suggests a client. Its suggestions land in &ldquo;Needs review&rdquo; for you to check.</p>
+    </div></div>
+    <div class="step"><div class="num">3</div><div class="step-body">
+      <p><strong>Review &amp; apply.</strong> You tick/untick the suggestions, then click <strong>Apply checked</strong>.
+      <strong>Nothing is tagged until you apply</strong>, and re-running won't create duplicates.</p>
+    </div></div>
+  </div>
+
+  <!-- 5 -->
+  <h2 id="behaviour"><span class="nbr">5.</span>AI Training — teaching the assistant</h2>
+  <div class="meta">
+    <span class="pill pill-admin">Admin only</span>
+    <span class="pill pill-where">Admin &rarr; AI Training &rarr; &ldquo;Behaviour&rdquo; tab</span>
+  </div>
+  <p>
+    Where you teach the chat assistant <em>how to behave</em>, in plain English. Three sections:
+  </p>
+  <table>
+    <tr><th>Section</th><th>What goes here</th></tr>
+    <tr><td><strong>Principles</strong></td><td>Our ways &mdash; tone, rules of thumb, what to ask first (e.g. &ldquo;always include the cleaning fee when quoting&rdquo;).</td></tr>
+    <tr><td><strong>People &amp; roles</strong></td><td>Who's who, so the bot can point people to the right person (e.g. &ldquo;Sonali approves rate/discount changes&rdquo;).</td></tr>
+    <tr><td><strong>Guardrails &amp; fallbacks</strong></td><td>Hard rules and what to do when there's no SOP (e.g. &ldquo;if unsure about a discount, ask a manager before quoting&rdquo;).</td></tr>
+  </table>
+  <p>
+    Add or edit items and save. These rules are attached to the assistant's instructions on <strong>every message</strong>,
+    so changes take effect on the <strong>next chat</strong> &mdash; no waiting, no deploy. The bot always keeps its core
+    grounding (never invent fees), so these rules guide it rather than override safety.
+  </p>
+  <div class="note"><strong>Note:</strong> saving a section replaces that section's whole list, so edit the full list, then save.</div>
+
+  <!-- 6 -->
+  <h2 id="ingest"><span class="nbr">6.</span>Teach from conversations</h2>
+  <div class="meta">
+    <span class="pill pill-admin">Admin only</span>
+    <span class="pill pill-where">Admin &rarr; AI Training &rarr; &ldquo;Teach from conversations&rdquo; tab</span>
+  </div>
+  <p>
+    Turn a real team chat (e.g. a WhatsApp conversation) into knowledge: it finds <strong>reusable processes</strong> worth
+    writing up as SOPs, and <strong>&ldquo;our ways&rdquo; advice</strong> worth adding to the assistant's Behaviour. You review and
+    choose what to keep.
+  </p>
+
+  <div class="privacy">
+    <p><strong>Privacy first.</strong> Personal and sensitive details are stripped <strong>on our own server, before any
+    text reaches the AI</strong>. Automatically removed: phone numbers, emails, links, postcodes, booking references, and
+    door / lockbox / key / gate / WiFi codes. After analysing you'll see a count like
+    <span class="tag tag-behaviour">137 items redacted</span> so you know it ran. The AI is also told never to repeat
+    guest names or addresses in anything it drafts.</p>
+  </div>
+
+  <h3>How to use it</h3>
+  <div class="card">
+    <div class="step"><div class="num">1</div><div class="step-body">
+      <p><strong>Add the chat.</strong> Paste it, or click <strong>Upload .txt</strong> and choose a WhatsApp export. You can drop a whole export.</p>
+      <p class="hint">In WhatsApp: open the chat &rarr; menu &rarr; More &rarr; Export chat &rarr; Without media &rarr; save the .txt.</p>
+    </div></div>
+    <div class="step"><div class="num">2</div><div class="step-body">
+      <p><strong>Click &ldquo;Analyse conversation&rdquo;.</strong> Long chats are processed in parts (you'll see &ldquo;Analysing part 3 of 20&hellip;&rdquo;),
+      and slow parts retry on their own so the whole chat is covered.</p>
+    </div></div>
+    <div class="step"><div class="num">3</div><div class="step-body">
+      <p><strong>Review what it found</strong> (see the table below). Edit any wording before saving.</p>
+    </div></div>
+    <div class="step"><div class="num">4</div><div class="step-body">
+      <p><strong>Keep only what you want</strong> &mdash; tick items and click <strong>Create &hellip; as drafts</strong> (SOPs)
+      or <strong>Add &hellip; to Behaviour</strong> (rules). You don't have to save anything.</p>
+    </div></div>
+    <div class="step"><div class="num">5</div><div class="step-body">
+      <p><strong>Start over</strong> any time with the <strong>Start over</strong> / <strong>Discard &amp; start over</strong> buttons,
+      or just upload a new file (which clears the last run).</p>
+    </div></div>
+  </div>
+
+  <h3>What the results mean</h3>
+  <table>
+    <tr><th>Section</th><th>What it is</th><th>What you do</th></tr>
+    <tr><td><span class="tag tag-new">New SOPs</span></td><td>Processes not yet in the KB. The AI drafts the full article.</td><td>Edit, tag the client, tick, <strong>Create as drafts</strong>.</td></tr>
+    <tr><td><span class="tag tag-update">May need updating</span></td><td>An existing SOP is close but the chat changes something.</td><td>Open the linked SOP and update by hand.</td></tr>
+    <tr><td><span class="tag tag-exists">Already covered</span></td><td>Already well documented.</td><td>Nothing &mdash; reassurance only.</td></tr>
+    <tr><td><span class="tag tag-behaviour">Our ways</span></td><td>Coaching, who's-who, guardrails (sorted into Principle / Person / Guardrail).</td><td>Edit, pick section, tick, <strong>Add to Behaviour</strong>.</td></tr>
+  </table>
+
+  <div class="note">
+    <strong>Nothing saves automatically</strong>, and nothing goes live to the team automatically. New SOPs are created as
+    <strong>Drafts</strong> (find them under Manage SOPs) for a person to review and publish. Approved behaviours start
+    shaping chat answers from the next message.
+  </div>
+
+  <h3>What's new in the latest update</h3>
+  <ul>
+    <li><strong>Stronger privacy</strong> &mdash; now also removes booking references and access/door/lockbox/WiFi codes.</li>
+    <li><strong>Learns &ldquo;our ways&rdquo;</strong> &mdash; captures coaching, who's-who and guardrails into Behaviour, not just SOPs.</li>
+    <li><strong>Drop a whole export</strong> &mdash; full WhatsApp chats are processed in parts, nothing cut off.</li>
+    <li><strong>Reliable on long chats</strong> &mdash; slow parts retry and a second pass covers any stragglers.</li>
+    <li><strong>Saving fixed</strong> &mdash; approved SOPs and behaviours now reliably save.</li>
+    <li><strong>Start over any time</strong> &mdash; clear the screen and begin fresh without being forced to save.</li>
+  </ul>
+
+  <footer>
+    Hospiria Knowledge Base &middot; internal feature &amp; admin guide. The AI assistant and conversation tools use
+    Claude; SOP content and behaviour rules are managed by the team. New SOPs always enter as drafts for human review.
+  </footer>
+
+</div>
+</body>
+</html>
