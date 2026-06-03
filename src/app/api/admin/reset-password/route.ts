@@ -1,8 +1,12 @@
 import { createAdminClient } from '@/lib/supabase/server'
+import { requireFeature } from '@/lib/permissions-guard'
 import { NextResponse } from 'next/server'
 
 export async function POST(request: Request) {
   try {
+    const auth = await requireFeature('users', 'edit')
+    if ('error' in auth) return auth.error
+
     const { userId, password } = await request.json()
     if (!userId || !password) return NextResponse.json({ success: false, error: 'Missing fields' }, { status: 400 })
     if (password.length < 6) return NextResponse.json({ success: false, error: 'Password must be at least 6 characters' }, { status: 400 })
