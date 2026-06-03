@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Plus, Pin, PinOff, Trash2, Share2, Users, ArrowLeft,
-  CheckCircle2, Circle, Sparkles, Loader2, Calendar, ChevronDown,
+  Circle, Sparkles, Loader2, Calendar, ChevronDown,
   StickyNote, ListChecks, Check, X,
 } from 'lucide-react'
+import { MentionTextarea } from './MentionTextarea'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -168,15 +169,7 @@ function NoteEditor({ note, people, currentUserId, onBack, onChanged }: {
   const [saved, setSaved] = useState(true)
   const [saveError, setSaveError] = useState('')
   const [showShare, setShowShare] = useState(false)
-
-  // @mention state
-  const [mentionQuery, setMentionQuery] = useState('')
-  const [mentionOpen, setMentionOpen] = useState(false)
-  const [mentionRange, setMentionRange] = useState<{ start: number; end: number } | null>(null)
-  const bodyRef = useRef<HTMLTextAreaElement>(null)
-  const mentionTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
   const readOnly = !note.canEdit
 
   const save = useCallback(async (patch: Record<string, unknown>) => {
@@ -195,51 +188,6 @@ function NoteEditor({ note, people, currentUserId, onBack, onChanged }: {
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => save(patch), 700)
   }
-
-  // Detect "@" in body textarea for @mention
-  function onBodyChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    const val = e.target.value
-    setBody(val)
-    triggerSave({ body: val })
-
-    const cursor = e.target.selectionStart ?? val.length
-    // Find the last "@" before cursor on the same "word"
-    const before = val.slice(0, cursor)
-    const atMatch = before.match(/@(\w*)$/)
-    if (atMatch) {
-      const atStart = cursor - atMatch[0].length
-      setMentionQuery(atMatch[1])
-      setMentionRange({ start: atStart, end: cursor })
-      setMentionOpen(true)
-      if (mentionTimer.current) clearTimeout(mentionTimer.current)
-    } else {
-      setMentionOpen(false)
-    }
-  }
-
-  function insertMention(person: Person) {
-    if (!mentionRange || !bodyRef.current) return
-    const name = person.full_name ?? 'User'
-    const before = body.slice(0, mentionRange.start)
-    const after = body.slice(mentionRange.end)
-    const newBody = `${before}@${name}${after}`
-    setBody(newBody)
-    setMentionOpen(false)
-    setMentionRange(null)
-    triggerSave({ body: newBody, mentionedUserId: person.id })
-    // restore focus + cursor after mention
-    setTimeout(() => {
-      if (bodyRef.current) {
-        const pos = before.length + name.length + 1
-        bodyRef.current.focus()
-        bodyRef.current.setSelectionRange(pos, pos)
-      }
-    }, 0)
-  }
-
-  const mentionResults = mentionQuery
-    ? people.filter(p => (p.full_name ?? '').toLowerCase().includes(mentionQuery.toLowerCase()))
-    : people
 
   async function del() {
     if (!confirm('Delete this note?')) return
@@ -271,41 +219,18 @@ function NoteEditor({ note, people, currentUserId, onBack, onChanged }: {
           placeholder="Note title"
           className="w-full text-2xl font-bold text-navy-700 border-0 outline-none mb-4 bg-transparent placeholder:text-gray-300"
         />
-
-        {/* Body with @mention */}
-        <div className="relative">
-          <textarea
-            ref={bodyRef}
-            value={body}
-            disabled={readOnly}
-            onChange={onBodyChange}
-            onKeyDown={e => {
-              if (mentionOpen) {
-                if (e.key === 'Escape') { setMentionOpen(false); e.preventDefault() }
-              }
-            }}
-            placeholder={readOnly ? '' : 'Write anything… type @ to mention someone'}
-            className="w-full min-h-[400px] text-sm text-gray-700 border-0 outline-none resize-none bg-transparent leading-relaxed"
-          />
-          {mentionOpen && mentionResults.length > 0 && (
-            <div className="absolute left-0 z-20 bg-white border border-gray-200 rounded-xl shadow-lg py-1.5 w-64 max-h-48 overflow-y-auto">
-              <p className="text-[10px] text-gray-400 px-3 mb-1 uppercase tracking-wide">Mention</p>
-              {mentionResults.slice(0, 8).map(p => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onMouseDown={e => { e.preventDefault(); insertMention(p) }}
-                  className="w-full text-left px-3 py-2 text-sm text-navy-700 hover:bg-teal-50 flex items-center gap-2"
-                >
-                  <div className="w-6 h-6 rounded-full bg-navy-700 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">
-                    {(p.full_name ?? 'U')[0].toUpperCase()}
-                  </div>
-                  {p.full_name ?? 'User'}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <MentionTextarea
+          value={body}
+          disabled={readOnly}
+          people={people}
+          minRows={12}
+          placeholder="Write anything… type @ to mention someone"
+          onChange={val => { setBody(val); triggerSave({ body: val }) }}
+          onMention={(person, newVal) => {
+            setBody(newVal)
+            save({ body: newVal, mentionedUserId: person.id })
+          }}
+        />
         {readOnly && <p className="text-xs text-gray-400 italic mt-2 pt-2 border-t border-gray-100">Shared with you (view only).</p>}
       </div>
     </div>
