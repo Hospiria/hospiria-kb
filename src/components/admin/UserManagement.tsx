@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Profile, Team } from '@/types'
 import { RoleBadge } from '@/components/ui/StatusBadge'
 import { formatDate } from '@/lib/utils'
-import { UserPlus, Edit2, X, Eye } from 'lucide-react'
+import { UserPlus, Edit2, X, Eye, KeyRound, Trash2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { RolesEditor } from './PermissionsManager'
@@ -24,6 +24,11 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
   const [inviteMsg, setInviteMsg] = useState('')
   const [inviteSuccess, setInviteSuccess] = useState(false)
   const [impersonating, setImpersonating] = useState<string | null>(null)
+  const [resetingId, setResetingId] = useState<string | null>(null)
+  const [resetPassword, setResetPassword] = useState('')
+  const [resetMsg, setResetMsg] = useState<Record<string, string>>({})
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [activeView, setActiveView] = useState<'users' | 'roles'>('users')
   const router = useRouter()
 
@@ -36,6 +41,37 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
     })
     router.push('/dashboard')
     router.refresh()
+  }
+
+  async function handleResetPassword(userId: string) {
+    if (!resetPassword || resetPassword.length < 6) return
+    try {
+      const res = await fetch('/api/admin/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, password: resetPassword }),
+      })
+      const json = await res.json()
+      setResetMsg(prev => ({ ...prev, [userId]: json.success ? '✓ Password updated' : json.error ?? 'Error' }))
+      if (json.success) { setResetingId(null); setResetPassword('') }
+    } catch {
+      setResetMsg(prev => ({ ...prev, [userId]: 'Error updating password' }))
+    }
+  }
+
+  async function handleDeleteUser(userId: string) {
+    setDeletingId(userId)
+    try {
+      await fetch('/api/admin/delete-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      })
+      setConfirmDeleteId(null)
+      router.refresh()
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   async function handleInvite(e: React.FormEvent) {
@@ -189,7 +225,20 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
                       >
                         <Eye className="w-4 h-4" />
                       </button>
-
+                      <button
+                        onClick={() => { setResetingId(u.id); setResetPassword(''); setResetMsg({}) }}
+                        title="Set password"
+                        className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                      >
+                        <KeyRound className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeleteId(u.id)}
+                        title="Delete user"
+                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                       <Link
                         href={`/admin/users/${u.id}`}
                         title="Edit user & permissions"
@@ -199,6 +248,48 @@ export function UserManagement({ users, teams }: { users: UserWithTeams[]; teams
                       </Link>
                     </div>
                   </div>
+
+                  {/* Inline set password */}
+                  {resetingId === u.id && (
+                    <div className="mt-2 ml-10 flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={resetPassword}
+                        onChange={e => setResetPassword(e.target.value)}
+                        placeholder="New password (min 6 chars)"
+                        className="flex-1 px-3 py-1.5 border border-amber-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-amber-50"
+                        autoFocus
+                      />
+                      <button
+                        onClick={() => handleResetPassword(u.id)}
+                        disabled={resetPassword.length < 6}
+                        className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold rounded-lg disabled:opacity-40 transition-colors"
+                      >
+                        Save
+                      </button>
+                      <button onClick={() => setResetingId(null)} className="p-1.5 text-gray-400 hover:bg-gray-100 rounded-lg">
+                        <X className="w-4 h-4" />
+                      </button>
+                      {resetMsg[u.id] && <span className="text-xs text-teal-600 font-medium">{resetMsg[u.id]}</span>}
+                    </div>
+                  )}
+
+                  {/* Delete confirmation */}
+                  {confirmDeleteId === u.id && (
+                    <div className="mt-2 ml-10 flex items-center gap-3 p-3 bg-red-50 border border-red-200 rounded-xl">
+                      <p className="text-sm text-red-700 flex-1">Delete <strong>{u.full_name ?? u.id}</strong>? This cannot be undone.</p>
+                      <button
+                        onClick={() => handleDeleteUser(u.id)}
+                        disabled={deletingId === u.id}
+                        className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-lg disabled:opacity-50 transition-colors"
+                      >
+                        {deletingId === u.id ? 'Deleting…' : 'Yes, delete'}
+                      </button>
+                      <button onClick={() => setConfirmDeleteId(null)} className="px-3 py-1.5 text-gray-500 hover:bg-white rounded-lg text-xs border border-gray-200 transition-colors">
+                        Cancel
+                      </button>
+                    </div>
+                  )}
 
                 </div>
               ))}
