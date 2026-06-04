@@ -32,8 +32,12 @@ const CARD_CATALOGUE: {
 
 const ALLOWED_SPANS = [4, 6, 8, 12]
 const GRID_GAP = 16 // px — matches gap-4
+const DEFAULT_HEIGHT = 420
+const MIN_HEIGHT = 150
+const MAX_HEIGHT = 820
 const snapSpan = (n: number) =>
   ALLOWED_SPANS.reduce((best, s) => (Math.abs(s - n) < Math.abs(best - n) ? s : best), ALLOWED_SPANS[0])
+const clampHeight = (n: number) => Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, n))
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -53,7 +57,7 @@ interface Props {
   profile: Profile
   role: string
   hiddenCards: string[]
-  cardLayout?: { order?: string[]; spans?: Record<string, number> }
+  cardLayout?: { order?: string[]; spans?: Record<string, number>; heights?: Record<string, number> }
   userId: string
   data: DashboardData
   adminChildren?: React.ReactNode
@@ -80,10 +84,18 @@ export function DashboardGrid({ profile, role, hiddenCards: initialHidden, cardL
     for (const c of availableCards) out[c.key] = cardLayout?.spans?.[c.key] ?? c.defaultSpan
     return out
   })
+  const [heights, setHeights] = useState<Record<string, number>>(() => {
+    const out: Record<string, number> = {}
+    for (const c of availableCards) out[c.key] = cardLayout?.heights?.[c.key] ?? DEFAULT_HEIGHT
+    return out
+  })
 
   const gridRef = useRef<HTMLDivElement>(null)
   const dragKey = useRef<string | null>(null)
-  const resizeState = useRef<{ key: string; startX: number; startSpan: number; unit: number } | null>(null)
+  const resizeState = useRef<{
+    key: string; axes: { x: boolean; y: boolean }
+    startX: number; startY: number; startSpan: number; startHeight: number; unit: number
+  } | null>(null)
 
   // ── Persistence ──────────────────────────────────────────────────────────
   const persist = useCallback(async (body: Record<string, unknown>) => {
@@ -94,8 +106,8 @@ export function DashboardGrid({ profile, role, hiddenCards: initialHidden, cardL
     setSaving(false)
   }, [])
 
-  const saveLayout = useCallback((nextOrder: string[], nextSpans: Record<string, number>) => {
-    persist({ card_layout: { order: nextOrder, spans: nextSpans } })
+  const saveLayout = useCallback((nextOrder: string[], nextSpans: Record<string, number>, nextHeights: Record<string, number>) => {
+    persist({ card_layout: { order: nextOrder, spans: nextSpans, heights: nextHeights } })
   }, [persist])
 
   const toggleCard = useCallback((key: string) => {
@@ -124,31 +136,40 @@ export function DashboardGrid({ profile, role, hiddenCards: initialHidden, cardL
     })
   }
   const handleDragEnd = () => {
-    if (dragKey.current) saveLayout(order, spans)
+    if (dragKey.current) saveLayout(order, spans, heights)
     dragKey.current = null
   }
 
-  // ── Drag to resize ───────────────────────────────────────────────────────
-  const startResize = (key: string) => (e: React.PointerEvent) => {
+  // ── Drag to resize (x = width/span, y = height) ──────────────────────────
+  const startResize = (key: string, axes: { x: boolean; y: boolean }) => (e: React.PointerEvent) => {
     e.preventDefault(); e.stopPropagation()
     const rect = gridRef.current?.getBoundingClientRect()
     const unit = rect ? (rect.width + GRID_GAP) / 12 : 80
-    resizeState.current = { key, startX: e.clientX, startSpan: spans[key] ?? 6, unit }
+    resizeState.current = {
+      key, axes, unit,
+      startX: e.clientX, startY: e.clientY,
+      startSpan: spans[key] ?? 6, startHeight: heights[key] ?? DEFAULT_HEIGHT,
+    }
     ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
   }
   const onResizeMove = (e: React.PointerEvent) => {
     const rs = resizeState.current
     if (!rs) return
-    const deltaCols = Math.round((e.clientX - rs.startX) / rs.unit)
-    const raw = Math.min(12, Math.max(4, rs.startSpan + deltaCols))
-    const snapped = snapSpan(raw)
-    setSpans(prev => (prev[rs.key] === snapped ? prev : { ...prev, [rs.key]: snapped }))
+    if (rs.axes.x) {
+      const deltaCols = Math.round((e.clientX - rs.startX) / rs.unit)
+      const snapped = snapSpan(Math.min(12, Math.max(4, rs.startSpan + deltaCols)))
+      setSpans(prev => (prev[rs.key] === snapped ? prev : { ...prev, [rs.key]: snapped }))
+    }
+    if (rs.axes.y) {
+      const h = clampHeight(rs.startHeight + (e.clientY - rs.startY))
+      setHeights(prev => (prev[rs.key] === h ? prev : { ...prev, [rs.key]: h }))
+    }
   }
   const endResize = (e: React.PointerEvent) => {
     if (!resizeState.current) return
     ;(e.target as HTMLElement).releasePointerCapture?.(e.pointerId)
     resizeState.current = null
-    saveLayout(order, spans)
+    saveLayout(order, spans, heights)
   }
 
   const visibleOrdered = order.filter(k => availableKeys.includes(k) && !hidden.has(k))
@@ -220,7 +241,7 @@ export function DashboardGrid({ profile, role, hiddenCards: initialHidden, cardL
         {visibleOrdered.map(key => (
           <div
             key={key}
-            style={{ gridColumn: `span ${spans[key] ?? 6}` }}
+            style={{ gridColumn: `span ${spans[key] ?? 6}`, ['--card-h' as string]: `${heights[key] ?? DEFAULT_HEIGHT}px` } as React.CSSProperties}
             className={`relative ${editing ? 'ring-2 ring-navy-100 rounded-2xl' : ''}`}
             onDragEnter={editing ? handleDragEnter(key) : undefined}
             onDragOver={editing ? (e) => e.preventDefault() : undefined}
@@ -250,18 +271,36 @@ export function DashboardGrid({ profile, role, hiddenCards: initialHidden, cardL
                   className="absolute top-2 right-2 z-20 p-1 rounded-md bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-200 shadow-sm">
                   <EyeOff className="w-3.5 h-3.5" />
                 </button>
-                {/* Resize handle (right edge) */}
+                {/* Resize handle — right edge (width) */}
                 <div
-                  onPointerDown={startResize(key)}
+                  onPointerDown={startResize(key, { x: true, y: false })}
                   onPointerMove={onResizeMove}
                   onPointerUp={endResize}
-                  title="Drag to resize"
+                  title="Drag to resize width"
                   className="absolute top-0 right-0 h-full w-3 z-20 cursor-ew-resize flex items-center justify-center group">
                   <div className="h-12 w-1.5 rounded-full bg-navy-300 group-hover:bg-navy-500 transition-colors" />
                 </div>
-                {/* Width badge */}
-                <span className="absolute bottom-2 right-3 z-20 text-[10px] font-bold text-navy-400 bg-white/80 px-1.5 rounded">
-                  {Math.round(((spans[key] ?? 6) / 12) * 100)}%
+                {/* Resize handle — bottom edge (height) */}
+                <div
+                  onPointerDown={startResize(key, { x: false, y: true })}
+                  onPointerMove={onResizeMove}
+                  onPointerUp={endResize}
+                  title="Drag to resize height"
+                  className="absolute bottom-0 left-0 w-full h-3 z-20 cursor-ns-resize flex items-center justify-center group">
+                  <div className="w-12 h-1.5 rounded-full bg-navy-300 group-hover:bg-navy-500 transition-colors" />
+                </div>
+                {/* Resize handle — corner (both) */}
+                <div
+                  onPointerDown={startResize(key, { x: true, y: true })}
+                  onPointerMove={onResizeMove}
+                  onPointerUp={endResize}
+                  title="Drag to resize both"
+                  className="absolute bottom-0 right-0 w-5 h-5 z-30 cursor-nwse-resize flex items-end justify-end p-1 group">
+                  <div className="w-2.5 h-2.5 border-r-2 border-b-2 border-navy-300 group-hover:border-navy-500 transition-colors" />
+                </div>
+                {/* Size badge */}
+                <span className="absolute bottom-2 left-3 z-20 text-[10px] font-bold text-navy-400 bg-white/80 px-1.5 rounded">
+                  {Math.round(((spans[key] ?? 6) / 12) * 100)}% w · {heights[key] ?? DEFAULT_HEIGHT}px h
                 </span>
               </>
             )}
@@ -358,7 +397,7 @@ function TasksCard({ tasks }: { tasks: Record<string, unknown>[] }) {
           No open tasks. <Link href="/notes" className="text-teal-600 hover:underline pointer-events-auto">Go to Notes &amp; To-dos →</Link>
         </p>
       ) : (
-        <div className="max-h-[420px] overflow-y-auto">
+        <div className="max-h-[var(--card-h,420px)] overflow-y-auto">
           {/* All view: grouped one-offs by urgency + recurring sections */}
           {view === 'all' && (
             <>
@@ -416,7 +455,7 @@ function SopsApproveCard({ sops }: { sops: Record<string, unknown>[] }) {
   return (
     <CardShell title="SOPs to Approve" icon={Clock} count={rows.length} color="amber">
       {rows.length === 0 ? <Empty msg="✅ Nothing waiting for approval." /> : (
-        <div className="divide-y divide-gray-50 max-h-[420px] overflow-y-auto">
+        <div className="divide-y divide-gray-50 max-h-[var(--card-h,420px)] overflow-y-auto">
           {rows.map(s => (
             <Link key={s.id} href={`/sops/${s.id}/approve`} className="flex items-center justify-between px-5 py-3 hover:bg-amber-50 group pointer-events-auto">
               <div className="min-w-0 flex-1 mr-3">
@@ -438,7 +477,7 @@ function QuizTeamCard({ stats }: { stats: TeamQuizStat[] }) {
   return (
     <CardShell title="Quiz Performance" icon={TrendingUp} color="teal">
       {stats.length === 0 ? <Empty msg="No quiz data yet." /> : (
-        <div className="px-5 py-3 space-y-3 max-h-[420px] overflow-y-auto">
+        <div className="px-5 py-3 space-y-3 max-h-[var(--card-h,420px)] overflow-y-auto">
           {stats.map(s => {
             const pct = s.total > 0 ? Math.round((s.passed / s.total) * 100) : 0
             return (
@@ -466,7 +505,7 @@ function ChaseCard({ members }: { members: MemberChase[] }) {
   return (
     <CardShell title="Chase Up" icon={AlertTriangle} count={members.length || undefined} color="amber">
       {members.length === 0 ? <Empty msg="✅ No overdue quizzes for your team!" /> : (
-        <div className="divide-y divide-gray-50 max-h-[420px] overflow-y-auto">
+        <div className="divide-y divide-gray-50 max-h-[var(--card-h,420px)] overflow-y-auto">
           {members.map(m => (
             <div key={m.id} className="flex items-start gap-3 px-5 py-3">
               <div className="w-7 h-7 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
@@ -494,7 +533,7 @@ function MyCoursesCard({ courses }: { courses: Record<string, unknown>[] }) {
   return (
     <CardShell title="My Courses" icon={GraduationCap} count={rows.length || undefined} href="/quizzes" color="navy">
       {rows.length === 0 ? <Empty msg="✅ No outstanding courses." /> : (
-        <div className="divide-y divide-gray-50 max-h-[420px] overflow-y-auto">
+        <div className="divide-y divide-gray-50 max-h-[var(--card-h,420px)] overflow-y-auto">
           {rows.map(c => (
             <Link key={c.id} href="/quizzes" className="flex items-center justify-between px-5 py-3 hover:bg-slate-50 group pointer-events-auto">
               <div className="min-w-0 flex-1 mr-3">
@@ -523,7 +562,7 @@ function MyNotesCard({ notes }: { notes: Record<string, unknown>[] }) {
       {rows.length === 0 ? (
         <p className="text-sm text-gray-400 italic px-5 py-6">No notes yet. <Link href="/notes" className="text-teal-600 hover:underline pointer-events-auto">Create one →</Link></p>
       ) : (
-        <div className="divide-y divide-gray-50 max-h-[420px] overflow-y-auto">
+        <div className="divide-y divide-gray-50 max-h-[var(--card-h,420px)] overflow-y-auto">
           {rows.map(n => (
             <Link key={n.id} href="/notes" className="flex items-start gap-2.5 px-5 py-3 hover:bg-teal-50 group pointer-events-auto">
               {n.pinned && <Pin className="w-3 h-3 text-amber-500 mt-0.5 flex-shrink-0" />}
@@ -548,7 +587,7 @@ function TeamSopsCard({ sops, teamName }: { sops: Record<string, unknown>[]; tea
   return (
     <CardShell title={`${teamName ?? 'Team'} SOPs`} icon={FileText} href="/sops" color="navy">
       {rows.length === 0 ? <Empty msg="No SOPs yet." /> : (
-        <div className="divide-y divide-gray-50 max-h-[420px] overflow-y-auto">
+        <div className="divide-y divide-gray-50 max-h-[var(--card-h,420px)] overflow-y-auto">
           {rows.map(s => (
             <Link key={s.id} href={`/sops/${s.id}`} className="flex items-center justify-between px-5 py-3 hover:bg-slate-50 group pointer-events-auto">
               <div className="min-w-0 flex-1 mr-3">
@@ -574,7 +613,7 @@ function MySopsCard({ sops }: { sops: Record<string, unknown>[] }) {
   return (
     <CardShell title="My SOPs" icon={FileText} href="/sops" color="navy">
       {rows.length === 0 ? <Empty msg="You haven't written any SOPs yet." /> : (
-        <div className="divide-y divide-gray-50 max-h-[420px] overflow-y-auto">
+        <div className="divide-y divide-gray-50 max-h-[var(--card-h,420px)] overflow-y-auto">
           {rows.map(s => (
             <Link key={s.id} href={`/sops/${s.id}`} className="flex items-center justify-between px-5 py-3 hover:bg-slate-50 group pointer-events-auto">
               <div className="min-w-0 flex-1 mr-3">
