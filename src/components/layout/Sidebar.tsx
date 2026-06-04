@@ -8,7 +8,7 @@ import { RoleBadge } from '@/components/ui/StatusBadge'
 import {
   LayoutDashboard, Users, Building2, Upload,
   BookOpen, Users as TeamIcon, PlugZap, ListChecks, GraduationCap,
-  Briefcase, Layers, ChevronDown, Search, Library, Tag, Brain, NotebookPen,
+  Briefcase, Layers, ChevronDown, Search, Library, Tag, Brain, NotebookPen, CircleDot,
 } from 'lucide-react'
 import { useState } from 'react'
 import { FeatureKey, Perm } from '@/lib/permissions'
@@ -48,6 +48,7 @@ export function Sidebar({ profile, teamName, teams, companies, platforms, perms 
     { label: 'Auto-tag SOPs', href: '/admin/auto-tag', icon: Tag, feature: 'autotag', level: 'edit' },
     { label: 'AI Training', href: '/admin/ai-training', icon: Brain, feature: 'ai_training', level: 'view' },
     { label: 'Manage Quizzes', href: '/admin/quizzes', icon: GraduationCap, feature: 'quizzes', level: 'edit' },
+    { label: 'To-do Statuses', href: '/admin/statuses', icon: CircleDot, feature: 'notes', level: 'edit' },
   ]
   const adminItems = adminNav.filter(item => can(item.feature, item.level))
 

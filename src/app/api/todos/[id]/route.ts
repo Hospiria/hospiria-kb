@@ -24,9 +24,13 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   if (b.priority !== undefined && ['low', 'medium', 'high'].includes(b.priority)) patch.priority = b.priority
   if (b.assigneeId !== undefined) patch.assignee_id = b.assigneeId || null
   if (b.teamId !== undefined) patch.team_id = b.teamId || null
-  if (b.status !== undefined && ['open', 'done'].includes(b.status)) {
-    patch.status = b.status
-    patch.completed_at = b.status === 'done' ? new Date().toISOString() : null
+  if (b.status !== undefined) {
+    patch.status = b.status.toString()
+    // isDone can be passed explicitly (when status comes from todo_statuses.is_done)
+    if (b.isDone !== undefined) {
+      patch.is_done = !!b.isDone
+      patch.completed_at = b.isDone ? new Date().toISOString() : null
+    }
   }
   if (Object.keys(patch).length === 0) return NextResponse.json({ success: true })
 

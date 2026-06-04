@@ -10,6 +10,8 @@ import { formatDateTime } from '@/lib/utils'
 import { Edit, ChevronLeft, CheckCircle, Clock, Link2, ChevronRight } from 'lucide-react'
 import { getEffectiveSession } from '@/lib/impersonation'
 import { canEditAnySop, canApproveSop, canSeeAllDrafts, canCreateSop } from '@/lib/roles'
+import { createServiceClient } from '@/lib/supabase/server'
+import { SopNotesPanel } from '@/components/sops/SopNotesPanel'
 
 export default async function SopViewPage({ params }: { params: { id: string } }) {
   const session = await getEffectiveSession()
@@ -58,6 +60,13 @@ export default async function SopViewPage({ params }: { params: { id: string } }
   const relatedSops = ((relatedSopsRaw ?? []) as { id: string; title: string; status: string }[])
     .filter(r => r.status === 'live' || canSeeDrafts)
     .sort((a, b) => a.title.localeCompare(b.title))
+
+  // People + teams for SOP notes panel
+  const db = createServiceClient()
+  const [{ data: sopNotesPeople }, { data: sopNotesTeams }] = await Promise.all([
+    db.from('profiles').select('id, full_name').order('full_name'),
+    supabase.from('teams').select('id, name').order('name'),
+  ])
 
   // Can edit: admins/approvers can edit any; team leaders + junior TLs can edit their own
   const isOwner = sop.author_id === effectiveUserId
@@ -184,17 +193,24 @@ export default async function SopViewPage({ params }: { params: { id: string } }
           )}
         </div>
 
-        {/* Version history sidebar */}
-        {showVersions && versions && versions.length > 0 && (
-          <div className="w-64 flex-shrink-0">
+        {/* Right sidebar: version history + notes panel */}
+        <div className="w-72 flex-shrink-0 space-y-4">
+          {showVersions && versions && versions.length > 0 && (
             <VersionHistoryPanel
               versions={versions}
               currentVersion={sop.current_version}
               sopId={sop.id}
               isSuperAdmin={profile.role === 'super_admin'}
             />
+          )}
+          <div className="bg-white border border-gray-200 rounded-2xl p-4">
+            <SopNotesPanel
+              sopId={sop.id}
+              teams={(sopNotesTeams ?? []) as { id: string; name: string }[]}
+              people={(sopNotesPeople ?? []) as { id: string; full_name: string | null }[]}
+            />
           </div>
-        )}
+        </div>
       </div>
     </div>
   )

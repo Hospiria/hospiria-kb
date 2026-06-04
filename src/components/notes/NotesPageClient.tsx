@@ -4,15 +4,18 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Plus, Pin, PinOff, Trash2, Share2, Users, ArrowLeft,
   Circle, Sparkles, Loader2, Calendar, ChevronDown,
-  StickyNote, ListChecks, Check, X, Lock, Globe, RotateCcw,
+  StickyNote, ListChecks, Check, X, Lock, Globe, RotateCcw, MessageSquare,
 } from 'lucide-react'
+import { createPortal } from 'react-dom'
 import { MentionTextarea } from './MentionTextarea'
 import { DeleteConfirmModal, type DeleteTarget } from './DeleteConfirmModal'
+import { CommentsPanel } from '@/components/todos/CommentsPanel'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Person { id: string; full_name: string | null }
 interface Team   { id: string; name: string }
+interface TodoStatus { id: string; name: string; color: string; is_done: boolean; is_default: boolean }
 interface Note {
   id: string; title: string; body: string; color: string | null; pinned: boolean
   updated_at: string; team_id: string | null; mine: boolean; canEdit: boolean
@@ -21,7 +24,7 @@ interface Note {
 interface Todo {
   id: string; owner_id: string; assignee_id: string | null; team_id: string | null
   title: string; detail: string | null; due_date: string | null
-  priority: 'low' | 'medium' | 'high'; status: 'open' | 'done'
+  priority: 'low' | 'medium' | 'high'; status: string; is_done: boolean
   deleted_at: string | null; deleted_by: string | null; deletedByName: string | null
   mine: boolean; assignedToMe: boolean; ownerName: string | null
   assigneeName: string | null; teamName: string | null
@@ -53,6 +56,7 @@ export function NotesPageClient({ currentUserId, people, myTeams }: {
   const [activeNote, setActiveNote] = useState<Note | null>(null)
   const [error, setError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
+  const [statuses, setStatuses] = useState<TodoStatus[]>([])
 
   const qs = space === 'personal' ? '?space=personal' : `?teamId=${space}`
 
@@ -82,6 +86,9 @@ export function NotesPageClient({ currentUserId, people, myTeams }: {
   }, [qs])
 
   useEffect(() => { loadNotes(); loadTodos() }, [loadNotes, loadTodos])
+  useEffect(() => {
+    fetch('/api/todo-statuses').then(r => r.ok ? r.json() : null).then(d => { if (d) setStatuses(d.statuses ?? []) })
+  }, [])
 
   async function createNote() {
     setError('')
@@ -191,7 +198,7 @@ export function NotesPageClient({ currentUserId, people, myTeams }: {
       {tab === 'todos' && (
         <TodosSection
           todos={todos} trashTodos={trashTodos}
-          people={people} teams={myTeams}
+          people={people} teams={myTeams} statuses={statuses}
           currentTeamId={isTeamSpace ? space : null}
           currentUserId={currentUserId}
           onRefresh={loadTodos}
@@ -317,8 +324,55 @@ function SharePanel({ noteId, people, currentUserId }: { noteId: string; people:
 
 // ─── To-dos section ───────────────────────────────────────────────────────────
 
-function TodosSection({ todos, trashTodos, people, teams, currentTeamId, currentUserId, onRefresh, loading, onDelete, onRestore }: {
-  todos: Todo[]; trashTodos: Todo[]; people: Person[]; teams: Team[]
+function StatusPicker({ current, statuses, onChange }: {
+  current: string; statuses: TodoStatus[]; onChange: (s: TodoStatus) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+  const currentStatus = statuses.find(s => s.name === current)
+
+  function toggle() {
+    if (!open && btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect()
+      setPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX })
+    }
+    setOpen(o => !o)
+  }
+
+  if (!statuses.length) return null
+
+  return (
+    <>
+      <button ref={btnRef} onClick={toggle}
+        className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border transition-colors"
+        style={{ backgroundColor: (currentStatus?.color ?? '#94a3b8') + '20', color: currentStatus?.color ?? '#94a3b8', borderColor: (currentStatus?.color ?? '#94a3b8') + '40' }}>
+        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: currentStatus?.color ?? '#94a3b8' }} />
+        {current}
+      </button>
+      {open && typeof document !== 'undefined' && createPortal(
+        <>
+          <div className="fixed inset-0 z-[9998]" onClick={() => setOpen(false)} />
+          <div className="absolute z-[9999] bg-white border border-gray-200 rounded-xl shadow-xl w-44 py-1.5 max-h-60 overflow-y-auto"
+            style={{ top: pos.top, left: pos.left }}>
+            {statuses.map(s => (
+              <button key={s.id} onClick={() => { onChange(s); setOpen(false) }}
+                className="w-full text-left flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-gray-50 transition-colors">
+                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: s.color }} />
+                <span className="flex-1 truncate">{s.name}</span>
+                {s.name === current && <Check className="w-3 h-3 text-teal-500 flex-shrink-0" />}
+              </button>
+            ))}
+          </div>
+        </>,
+        document.body,
+      )}
+    </>
+  )
+}
+
+function TodosSection({ todos, trashTodos, people, teams, statuses, currentTeamId, currentUserId, onRefresh, loading, onDelete, onRestore }: {
+  todos: Todo[]; trashTodos: Todo[]; people: Person[]; teams: Team[]; statuses: TodoStatus[]
   currentTeamId: string | null; currentUserId: string
   onRefresh: () => void; loading: boolean
   onDelete: (t: Todo) => void; onRestore: (id: string) => void
@@ -346,8 +400,12 @@ function TodosSection({ todos, trashTodos, people, teams, currentTeamId, current
     await fetch(`/api/todos/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); onRefresh()
   }
 
-  const open = todos.filter(t => t.status === 'open')
-  const done = todos.filter(t => t.status === 'done')
+  async function changeStatus(id: string, s: TodoStatus) {
+    await patch(id, { status: s.name, isDone: s.is_done })
+  }
+
+  const active = todos.filter(t => !t.is_done)
+  const done = todos.filter(t => t.is_done)
 
   return (
     <div className="space-y-4">
@@ -355,9 +413,9 @@ function TodosSection({ todos, trashTodos, people, teams, currentTeamId, current
         <div className="flex items-end gap-3">
           <div className="flex-1">
             <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); add() } }} rows={2}
-              placeholder={currentTeamId ? `Add a team task… e.g. "update check-in instructions by Friday"` : `Add a task… e.g. "chase Sonali about 306 tomorrow — high priority"`}
+              placeholder={currentTeamId ? `Add a team task…` : `Add a task… e.g. "chase Sonali about 306 tomorrow — high priority"`}
               className="w-full resize-none text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-teal-500" />
-            <p className="text-[11px] text-gray-400 mt-1">Press Enter or click Add — AI fills in date, priority and assignee.</p>
+            <p className="text-[11px] text-gray-400 mt-1">Press Enter — AI fills in date, priority and assignee.</p>
           </div>
           <button onClick={add} disabled={!input.trim() || adding} className="h-10 px-4 flex-shrink-0 rounded-xl bg-teal-600 text-white text-sm font-medium flex items-center gap-2 hover:bg-teal-700 disabled:opacity-40">
             {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Add
@@ -367,11 +425,11 @@ function TodosSection({ todos, trashTodos, people, teams, currentTeamId, current
       </div>
 
       {loading ? <SpinnerRow /> : <>
-        {open.length === 0 && done.length === 0 && <Empty label={currentTeamId ? 'No team to-dos yet.' : 'No personal to-dos. Add one above.'} />}
-        {open.length > 0 && <div className="space-y-2">{open.map(t => <TodoRow key={t.id} t={t} people={people} teams={teams} expanded={expanded === t.id} onExpand={() => setExpanded(expanded === t.id ? null : t.id)} onToggle={() => patch(t.id, { status: 'done' })} onPatch={b => patch(t.id, b)} onDelete={() => onDelete(t)} />)}</div>}
+        {active.length === 0 && done.length === 0 && <Empty label={currentTeamId ? 'No team to-dos yet.' : 'No personal to-dos. Add one above.'} />}
+        {active.length > 0 && <div className="space-y-2">{active.map(t => <TodoRow key={t.id} t={t} people={people} teams={teams} statuses={statuses} expanded={expanded === t.id} onExpand={() => setExpanded(expanded === t.id ? null : t.id)} onStatusChange={s => changeStatus(t.id, s)} onPatch={b => patch(t.id, b)} onDelete={() => onDelete(t)} />)}</div>}
         {done.length > 0 && <div>
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Completed ({done.length})</p>
-          <div className="space-y-2">{done.map(t => <TodoRow key={t.id} t={t} people={people} teams={teams} expanded={expanded === t.id} onExpand={() => setExpanded(expanded === t.id ? null : t.id)} onToggle={() => patch(t.id, { status: 'open' })} onPatch={b => patch(t.id, b)} onDelete={() => onDelete(t)} />)}</div>
+          <div className="space-y-2">{done.map(t => <TodoRow key={t.id} t={t} people={people} teams={teams} statuses={statuses} expanded={expanded === t.id} onExpand={() => setExpanded(expanded === t.id ? null : t.id)} onStatusChange={s => changeStatus(t.id, s)} onPatch={b => patch(t.id, b)} onDelete={() => onDelete(t)} />)}</div>
         </div>}
         <TrashSection show={showTrash} onToggle={() => setShowTrash(s => !s)} trashNotes={[]} trashTodos={trashTodos} onRestoreTodo={onRestore} />
       </>}
@@ -379,41 +437,72 @@ function TodosSection({ todos, trashTodos, people, teams, currentTeamId, current
   )
 }
 
-function TodoRow({ t, people, teams, expanded, onExpand, onToggle, onPatch, onDelete }: {
-  t: Todo; people: Person[]; teams: Team[]; expanded: boolean
-  onExpand: () => void; onToggle: () => void; onPatch: (b: Record<string, unknown>) => void; onDelete: () => void
+function TodoRow({ t, people, teams, statuses, expanded, onExpand, onStatusChange, onPatch, onDelete }: {
+  t: Todo; people: Person[]; teams: Team[]; statuses: TodoStatus[]; expanded: boolean
+  onExpand: () => void; onStatusChange: (s: TodoStatus) => void
+  onPatch: (b: Record<string, unknown>) => void; onDelete: () => void
 }) {
-  const done = t.status === 'done'
-  const isOverdue = t.due_date && !done && new Date(t.due_date) < new Date()
+  const [showComments, setShowComments] = useState(false)
+  const isDone = t.is_done
+  const isOverdue = t.due_date && !isDone && new Date(t.due_date) < new Date()
+
   return (
     <div className="bg-white border border-gray-200 rounded-2xl group">
       <div className="flex items-start gap-3 p-4">
-        <button onClick={onToggle} className={`mt-0.5 w-5 h-5 rounded-full border flex-shrink-0 flex items-center justify-center transition-colors ${done ? 'bg-teal-500 border-teal-500' : 'border-gray-300 hover:border-teal-400'}`}>
-          {done ? <Check className="w-3 h-3 text-white" /> : <Circle className="w-3 h-3 text-transparent" />}
-        </button>
+        {/* Status picker replaces the simple circle */}
+        <div className="mt-0.5 flex-shrink-0">
+          <StatusPicker current={t.status} statuses={statuses} onChange={onStatusChange} />
+        </div>
         <div className="flex-1 min-w-0">
-          <p className={`text-sm font-medium ${done ? 'text-gray-400 line-through' : 'text-navy-700'}`}>{t.title}</p>
-          {t.detail && !done && <p className="text-xs text-gray-500 mt-0.5">{t.detail}</p>}
+          <p className={`text-sm font-medium ${isDone ? 'text-gray-400 line-through' : 'text-navy-700'}`}>{t.title}</p>
+          {t.detail && !isDone && <p className="text-xs text-gray-500 mt-0.5">{t.detail}</p>}
           <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs text-gray-400">
             <span className={`font-medium ${PRIORITY_COLOR[t.priority]}`}>{t.priority}</span>
             {t.due_date && <span className={`flex items-center gap-1 ${isOverdue ? 'text-red-500 font-medium' : ''}`}><Calendar className="w-3 h-3" />{t.due_date}{isOverdue ? ' — overdue' : ''}</span>}
             {t.assigneeName && <span className="flex items-center gap-1 text-teal-600">{t.assignedToMe ? '→ You' : `→ ${t.assigneeName}`}</span>}
             {t.teamName && <span className="flex items-center gap-1"><Users className="w-3 h-3" />{t.teamName}</span>}
-            {!t.mine && t.ownerName && <span className="flex items-center gap-1 text-gray-400">by {t.ownerName}</span>}
+            {!t.mine && t.ownerName && <span className="flex items-center gap-1">by {t.ownerName}</span>}
           </div>
         </div>
-        {/* Quick delete — always visible on hover */}
-        <button onClick={onDelete} title="Delete" className="p-1.5 rounded-lg text-gray-200 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0">
+        {/* Comments toggle */}
+        <button onClick={() => { setShowComments(s => !s); if (!expanded) onExpand() }}
+          className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${showComments ? 'text-teal-600 bg-teal-50' : 'text-gray-200 hover:text-gray-500 opacity-0 group-hover:opacity-100'}`}
+          title="Comments">
+          <MessageSquare className="w-4 h-4" />
+        </button>
+        {/* Quick delete */}
+        <button onClick={onDelete} title="Delete"
+          className="p-1.5 rounded-lg text-gray-200 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0">
           <Trash2 className="w-4 h-4" />
         </button>
-        <button onClick={onExpand} className="p-1.5 text-gray-300 hover:text-gray-600 flex-shrink-0"><ChevronDown className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} /></button>
+        <button onClick={onExpand} className="p-1.5 text-gray-300 hover:text-gray-600 flex-shrink-0">
+          <ChevronDown className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        </button>
       </div>
       {expanded && (
-        <div className="border-t border-gray-100 p-4 bg-slate-50 rounded-b-2xl grid sm:grid-cols-2 gap-3">
-          <label className="block text-xs text-gray-500">Priority<select value={t.priority} onChange={e => onPatch({ priority: e.target.value })} className="w-full mt-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
-          <label className="block text-xs text-gray-500">Due date<input type="date" value={t.due_date ?? ''} onChange={e => onPatch({ dueDate: e.target.value || null })} className="w-full mt-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white" /></label>
-          <label className="block text-xs text-gray-500">Assign to<select value={t.assignee_id ?? ''} onChange={e => onPatch({ assigneeId: e.target.value || null })} className="w-full mt-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white"><option value="">Nobody</option>{people.map(p => <option key={p.id} value={p.id}>{p.full_name ?? 'User'}</option>)}</select></label>
-          <label className="block text-xs text-gray-500">Team list<select value={t.team_id ?? ''} onChange={e => onPatch({ teamId: e.target.value || null })} className="w-full mt-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white"><option value="">Personal</option>{teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}</select></label>
+        <div className="border-t border-gray-100 px-4 pb-4 bg-slate-50 rounded-b-2xl">
+          <div className="grid sm:grid-cols-2 gap-3 pt-4">
+            <label className="block text-xs text-gray-500">Priority
+              <select value={t.priority} onChange={e => onPatch({ priority: e.target.value })} className="w-full mt-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white">
+                <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
+              </select>
+            </label>
+            <label className="block text-xs text-gray-500">Due date
+              <input type="date" value={t.due_date ?? ''} onChange={e => onPatch({ dueDate: e.target.value || null })} className="w-full mt-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white" />
+            </label>
+            <label className="block text-xs text-gray-500">Assign to
+              <select value={t.assignee_id ?? ''} onChange={e => onPatch({ assigneeId: e.target.value || null })} className="w-full mt-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white">
+                <option value="">Nobody</option>{people.map(p => <option key={p.id} value={p.id}>{p.full_name ?? 'User'}</option>)}
+              </select>
+            </label>
+            <label className="block text-xs text-gray-500">Team list
+              <select value={t.team_id ?? ''} onChange={e => onPatch({ teamId: e.target.value || null })} className="w-full mt-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white">
+                <option value="">Personal</option>{teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
+              </select>
+            </label>
+          </div>
+          {/* Comments thread */}
+          <CommentsPanel todoId={t.id} people={people} />
         </div>
       )}
     </div>
