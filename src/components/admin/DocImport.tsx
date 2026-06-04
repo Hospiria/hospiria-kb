@@ -53,8 +53,7 @@ export function DocImport({ teams, categories, authorId }: DocImportProps) {
       // @ts-expect-error mammoth browser build has no types
       const mammoth = await import('mammoth/mammoth.browser')
       const arrayBuffer = await file.arrayBuffer()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result = await (mammoth as any).convertToMarkdown({ arrayBuffer })
+      const result = await (mammoth as ReturnType<typeof mammoth>).convertToMarkdown({ arrayBuffer })
 
       const title = file.name.replace(/\.docx$/i, '').replace(/[-_]/g, ' ')
       setParsed({
