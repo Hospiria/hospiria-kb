@@ -20,7 +20,7 @@ import {
   Bold, Italic, Underline as UnderlineIcon, List, ListOrdered,
   Heading1, Heading2, Heading3, Table as TableIcon, Link as LinkIcon,
   Image as ImageIcon, Minus, AlignLeft, Save, Send, Undo, Redo, Globe,
-  GraduationCap, Link2, X, Search, Loader2,
+  GraduationCap, Link2, X, Search, Loader2, CheckCheck,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -86,6 +86,7 @@ export function SopEditor({
   const [submitting, setSubmitting] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [message, setMessage] = useState('')
+  const [savedOk, setSavedOk] = useState(false)
   const canPublishDirectly = ['super_admin', 'approver', 'team_leader'].includes(userRole)
   const router = useRouter()
   const supabase = createClient()
@@ -171,21 +172,33 @@ export function SopEditor({
 
       let id = sopId
       if (sopId) {
-        await supabase.from('sops').update({
+        const { error: updateError } = await supabase.from('sops').update({
           title,
           content,
           category_id: categoryId || null,
           status,
           updated_at: new Date().toISOString(),
         }).eq('id', sopId)
+        if (updateError) {
+          setMessage(
+            updateError.code === '42501'
+              ? 'Permission denied — you may not have edit rights on this SOP. Ask an admin to check your permissions.'
+              : `Save failed: ${updateError.message}`
+          )
+          return
+        }
       } else {
-        const { data } = await supabase.from('sops').insert({
+        const { data, error: insertError } = await supabase.from('sops').insert({
           title,
           content,
           category_id: categoryId || null,
           status,
           author_id: authorId,
         }).select('id').single()
+        if (insertError) {
+          setMessage(`Could not create SOP: ${insertError.message}`)
+          return
+        }
         id = data?.id
       }
 
@@ -273,6 +286,12 @@ export function SopEditor({
           }
         }
 
+        if (mode === 'draft') {
+          // Flash "Saved ✓" without navigating away
+          setSavedOk(true)
+          setTimeout(() => setSavedOk(false), 3000)
+          return
+        }
         router.push(`/sops/${id}`)
       }
     } catch {
@@ -299,16 +318,37 @@ export function SopEditor({
     <div className="flex gap-6 max-w-6xl mx-auto">
       {/* Editor */}
       <div className="flex-1 min-w-0">
-        <input
-          type="text"
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-          placeholder="SOP Title"
-          className="w-full text-3xl font-bold text-navy-700 placeholder:text-gray-300 border-0 outline-none mb-4 bg-transparent"
-        />
+        {/* Sticky save bar — always visible as user scrolls */}
+        <div className="sticky top-14 z-20 bg-white/90 backdrop-blur border border-gray-200 rounded-xl mb-3 px-4 py-2 flex items-center justify-between gap-3 shadow-sm">
+          <input
+            type="text"
+            value={title}
+            onChange={e => { setTitle(e.target.value); setSavedOk(false) }}
+            placeholder="SOP Title"
+            className="flex-1 text-lg font-bold text-navy-700 placeholder:text-gray-300 border-0 outline-none bg-transparent min-w-0"
+          />
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {message && (
+              <p className="text-xs text-red-600 max-w-xs truncate">{message}</p>
+            )}
+            {savedOk && (
+              <span className="text-xs text-green-600 font-medium flex items-center gap-1">
+                <CheckCheck className="w-3.5 h-3.5" /> Saved
+              </span>
+            )}
+            <button
+              onClick={() => save('draft')}
+              disabled={saving || submitting || publishing}
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-teal-600 text-white text-sm font-semibold rounded-lg hover:bg-teal-700 transition-colors disabled:opacity-50"
+            >
+              <Save className="w-4 h-4" />
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
 
         {/* Toolbar */}
-        <div className="bg-white border border-gray-200 rounded-xl p-2 mb-0 flex flex-wrap gap-1 sticky top-20 z-10 shadow-sm">
+        <div className="bg-white border border-gray-200 rounded-xl p-2 mb-0 flex flex-wrap gap-1 sticky top-36 z-10 shadow-sm">
           <ToolbarButton onClick={() => editor.chain().focus().undo().run()} title="Undo"><Undo className="w-4 h-4" /></ToolbarButton>
           <ToolbarButton onClick={() => editor.chain().focus().redo().run()} title="Redo"><Redo className="w-4 h-4" /></ToolbarButton>
           <div className="w-px bg-gray-200 mx-1" />
