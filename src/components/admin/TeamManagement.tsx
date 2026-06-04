@@ -3,27 +3,47 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Team, Category } from '@/types'
-import { Plus, Edit2, Check, X, GripVertical, Trash2 } from 'lucide-react'
+import { Plus, Edit2, Check, X, GripVertical, Trash2, Link2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 type Approver = { id: string; full_name: string | null; primary_team_id: string | null }
 
 interface Props {
-  teams: Team[]
+  teams: (Team & { teams_webhook_url?: string | null })[]
   categories: Category[]
   approvers: Approver[]
 }
 
 export function TeamManagement({ teams, categories, approvers }: Props) {
-  const [selectedTeam, setSelectedTeam] = useState<Team | null>(teams[0] ?? null)
+  const [selectedTeam, setSelectedTeam] = useState<Team & { teams_webhook_url?: string | null } | null>(teams[0] ?? null)
   const [newCatName, setNewCatName] = useState('')
   const [addingCat, setAddingCat] = useState(false)
   const [editingCat, setEditingCat] = useState<string | null>(null)
   const [editCatName, setEditCatName] = useState('')
   const [newTeamName, setNewTeamName] = useState('')
   const [addingTeam, setAddingTeam] = useState(false)
+  const [webhookUrl, setWebhookUrl] = useState(selectedTeam?.teams_webhook_url ?? '')
+  const [savingWebhook, setSavingWebhook] = useState(false)
+  const [webhookMsg, setWebhookMsg] = useState('')
   const router = useRouter()
   const supabase = createClient()
+
+  function selectTeam(team: typeof teams[number]) {
+    setSelectedTeam(team)
+    setWebhookUrl(team.teams_webhook_url ?? '')
+    setWebhookMsg('')
+  }
+
+  async function saveWebhook() {
+    if (!selectedTeam) return
+    setSavingWebhook(true); setWebhookMsg('')
+    const { error } = await supabase.from('teams')
+      .update({ teams_webhook_url: webhookUrl.trim() || null })
+      .eq('id', selectedTeam.id)
+    setSavingWebhook(false)
+    setWebhookMsg(error ? error.message : 'Saved.')
+    router.refresh()
+  }
 
   const teamCats = categories.filter(c => c.team_id === selectedTeam?.id)
   const teamApprovers = approvers.filter(a => a.primary_team_id === selectedTeam?.id)
@@ -94,7 +114,7 @@ export function TeamManagement({ teams, categories, approvers }: Props) {
               {teams.map(team => (
                 <button
                   key={team.id}
-                  onClick={() => setSelectedTeam(team)}
+                  onClick={() => selectTeam(team)}
                   className={`w-full text-left px-4 py-3 text-sm transition-colors ${
                     selectedTeam?.id === team.id
                       ? 'bg-navy-700 text-white'
@@ -128,15 +148,47 @@ export function TeamManagement({ teams, categories, approvers }: Props) {
         <div className="flex-1">
           {selectedTeam ? (
             <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-100">
-                <h2 className="font-semibold text-navy-700">
-                  {selectedTeam.name} — Categories ({teamCats.length})
-                </h2>
-                {teamApprovers.length > 0 && (
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    Approver: {teamApprovers.map(a => a.full_name).join(', ')}
+              <div className="px-5 py-4 border-b border-gray-100 space-y-3">
+                <div>
+                  <h2 className="font-semibold text-navy-700">
+                    {selectedTeam.name} — Categories ({teamCats.length})
+                  </h2>
+                  {teamApprovers.length > 0 && (
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Approver: {teamApprovers.map(a => a.full_name).join(', ')}
+                    </p>
+                  )}
+                </div>
+                {/* Microsoft Teams channel webhook */}
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-2">
+                  <p className="text-xs font-semibold text-gray-600 flex items-center gap-1.5">
+                    <Link2 className="w-3.5 h-3.5 text-teal-500" /> Microsoft Teams Channel Webhook
                   </p>
-                )}
+                  <p className="text-[11px] text-gray-400">
+                    Paste the Incoming Webhook URL for this team&apos;s channel. Notifications (SOP published, tasks) will be sent here.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      value={webhookUrl}
+                      onChange={e => { setWebhookUrl(e.target.value); setWebhookMsg('') }}
+                      placeholder="https://hospiria.webhook.office.com/webhookb2/…"
+                      className="flex-1 text-xs border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white font-mono"
+                    />
+                    <button
+                      onClick={saveWebhook}
+                      disabled={savingWebhook}
+                      className="px-3 py-1.5 bg-teal-600 text-white text-xs font-semibold rounded-lg hover:bg-teal-700 disabled:opacity-50 flex-shrink-0"
+                    >
+                      {savingWebhook ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
+                  {webhookUrl && (
+                    <button onClick={() => { setWebhookUrl(''); saveWebhook() }} className="text-[11px] text-red-400 hover:text-red-600">
+                      Remove webhook
+                    </button>
+                  )}
+                  {webhookMsg && <p className="text-[11px] text-teal-600">{webhookMsg}</p>}
+                </div>
               </div>
               <div className="divide-y divide-gray-50">
                 {teamCats.map((cat, idx) => (

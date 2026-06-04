@@ -6,7 +6,7 @@ import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { TiptapContent, TiptapNode } from '@/types'
 import { sendQuizAssignedEmail } from '@/lib/notifications/email'
-import { sendTeamsNotification } from '@/lib/notifications/teams'
+import { sendTeamsNotification, sendSopPublishedNotification } from '@/lib/notifications/teams'
 
 function tiptapToText(content: TiptapContent | null): string {
   if (!content) return ''
@@ -37,11 +37,33 @@ export async function POST(request: Request) {
   const { sopId, quizEnabled = true, recipientMode = 'teams', specificUserIds = [] } = body
   if (!sopId) return NextResponse.json({ error: 'Missing sopId' }, { status: 400 })
 
-  // If quiz is disabled, just send the Teams notification and exit early
+  // If quiz is disabled, just send the Teams published notification and exit early
   if (!quizEnabled) {
-    const { data: sopMeta } = await adminClient.from('sops').select('title').eq('id', sopId).single()
+    const { data: sopMeta } = await adminClient
+      .from('sops')
+      .select('id, title, profiles(full_name), sop_teams(teams!inner(teams_webhook_url))')
+      .eq('id', sopId).single()
     if (sopMeta) {
-      await sendTeamsNotification({ sopTitle: sopMeta.title, dueDate: new Date() })
+      const sopMetaAny = sopMeta as Record<string, unknown>
+      const teams = (sopMetaAny.sop_teams as { teams: { teams_webhook_url: string | null }[] }[] | null) ?? []
+      const seen = new Set<string>()
+      const profileArr = sopMetaAny.profiles as { full_name: string | null }[] | null
+      const authorName = profileArr?.[0]?.full_name ?? 'Unknown'
+      for (const row of teams) {
+        const arr = row.teams as { teams_webhook_url: string | null }[]
+        for (const t of arr) {
+          const url = t.teams_webhook_url ?? process.env.TEAMS_WEBHOOK_URL ?? null
+          if (!url || seen.has(url)) continue
+          seen.add(url)
+        }
+      }
+      if (seen.size > 0) {
+        for (const url of seen) {
+          await sendSopPublishedNotification({ sopId, sopTitle: sopMeta.title, authorName, teamWebhookUrl: url })
+        }
+      } else {
+        await sendSopPublishedNotification({ sopId, sopTitle: sopMeta.title, authorName })
+      }
     }
     return NextResponse.json({ success: true, quizId: null, enrolled: 0, skipped: 'quiz disabled' })
   }
@@ -245,8 +267,42 @@ Rules:
     }
   }
 
-  // ── 6. Send Teams notification ────────────────────────────────────────
-  await sendTeamsNotification({ sopTitle: sop.title, dueDate })
+  // ── 6. Send Teams notifications — one per audience team ──────────────
+  // Fetch the audience teams for this SOP, with their webhook URLs.
+  const { data: sopTeamRows } = await adminClient
+    .from('sop_teams')
+    .select('teams!inner(id, name, teams_webhook_url)')
+    .eq('sop_id', sopId)
+
+  const audienceTeams = (sopTeamRows ?? []).flatMap(
+    (r: { teams: { id: string; name: string; teams_webhook_url: string | null }[] }) => r.teams
+  )
+
+  if (audienceTeams.length === 0) {
+    // No specific audience — send to the global webhook
+    if (quizEnabled) {
+      await sendTeamsNotification({ sopTitle: sop.title, dueDate })
+    } else {
+      await sendSopPublishedNotification({
+        sopId, sopTitle: sop.title,
+        authorName: (sop as { profiles?: { full_name: string | null } }).profiles?.full_name ?? 'Unknown',
+      })
+    }
+  } else {
+    // Send to each team's channel (deduped by webhook URL)
+    const seen = new Set<string>()
+    const authorName = (sop as { profiles?: { full_name: string | null } }).profiles?.full_name ?? 'Unknown'
+    for (const team of audienceTeams) {
+      const url = team.teams_webhook_url ?? process.env.TEAMS_WEBHOOK_URL ?? null
+      if (!url || seen.has(url)) continue
+      seen.add(url)
+      if (quizEnabled) {
+        await sendTeamsNotification({ sopTitle: sop.title, dueDate, teamWebhookUrl: url })
+      } else {
+        await sendSopPublishedNotification({ sopId, sopTitle: sop.title, authorName, teamWebhookUrl: url })
+      }
+    }
+  }
 
   return NextResponse.json({ success: true, quizId, enrolled: allProfiles.length })
 }
