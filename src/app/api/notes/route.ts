@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server'
 interface NoteRow {
   id: string; owner_id: string; title: string; body: string
   color: string | null; pinned: boolean; updated_at: string; team_id: string | null
-  deleted_at: string | null; deleted_by: string | null
+  sop_id: string | null; deleted_at: string | null; deleted_by: string | null
 }
 
 export async function GET(request: Request) {
@@ -20,7 +20,7 @@ export async function GET(request: Request) {
 
   let query = supabase
     .from('notes')
-    .select('id, owner_id, title, body, color, pinned, updated_at, team_id, deleted_at, deleted_by')
+    .select('id, owner_id, title, body, color, pinned, updated_at, team_id, sop_id, deleted_at, deleted_by')
     .order('pinned', { ascending: false })
     .order('updated_at', { ascending: false })
 
@@ -49,6 +49,13 @@ export async function GET(request: Request) {
     : { data: [] }
   const deleterById = new Map((deleters ?? []).map((p: { id: string; full_name: string | null }) => [p.id, p.full_name]))
 
+  // Resolve linked SOP titles
+  const sopIds = [...new Set(rows.map(r => r.sop_id).filter(Boolean) as string[])]
+  const { data: sops } = sopIds.length
+    ? await supabase.from('sops').select('id, title').in('id', sopIds)
+    : { data: [] }
+  const sopTitleById = new Map((sops ?? []).map((s: { id: string; title: string }) => [s.id, s.title]))
+
   const notes = rows.map(n => {
     const isTeamNote = !!n.team_id
     return {
@@ -57,6 +64,7 @@ export async function GET(request: Request) {
       canEdit: isTeamNote || n.owner_id === auth.userId || shareMap.get(n.id) === true,
       shared: !isTeamNote && n.owner_id !== auth.userId,
       deletedByName: n.deleted_by ? (deleterById.get(n.deleted_by) ?? null) : null,
+      sopTitle: n.sop_id ? (sopTitleById.get(n.sop_id) ?? null) : null,
     }
   })
   return NextResponse.json({ notes })
@@ -76,9 +84,9 @@ export async function POST(request: Request) {
   const { data, error } = await supabase
     .from('notes')
     .insert({ owner_id: auth.userId, title, body: noteBody, color, team_id: teamId })
-    .select('id, owner_id, title, body, color, pinned, updated_at, team_id, deleted_at, deleted_by')
+    .select('id, owner_id, title, body, color, pinned, updated_at, team_id, sop_id, deleted_at, deleted_by')
     .single()
   if (error || !data) return NextResponse.json({ error: error?.message ?? 'Create failed' }, { status: 500 })
 
-  return NextResponse.json({ note: { ...data, mine: true, canEdit: true, shared: false, deletedByName: null } })
+  return NextResponse.json({ note: { ...data, mine: true, canEdit: true, shared: false, deletedByName: null, sopTitle: null } })
 }

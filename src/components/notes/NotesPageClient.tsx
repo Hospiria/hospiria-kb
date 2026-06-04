@@ -5,7 +5,7 @@ import {
   Plus, Pin, PinOff, Trash2, Share2, Users, ArrowLeft,
   Circle, Sparkles, Loader2, Calendar, ChevronDown,
   StickyNote, ListChecks, Check, X, Lock, Globe, RotateCcw, MessageSquare,
-  Search, SlidersHorizontal,
+  Search, SlidersHorizontal, Link2, ExternalLink,
 } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { MentionTextarea } from './MentionTextarea'
@@ -21,6 +21,7 @@ interface Note {
   id: string; title: string; body: string; color: string | null; pinned: boolean
   updated_at: string; team_id: string | null; mine: boolean; canEdit: boolean
   shared: boolean; deleted_at: string | null; deletedByName: string | null
+  sop_id: string | null; sopTitle: string | null
 }
 interface Todo {
   id: string; owner_id: string; assignee_id: string | null; team_id: string | null
@@ -355,7 +356,14 @@ function NoteCard({ note, onOpen, onDelete }: { note: Note; onOpen: () => void; 
           </div>
         </div>
         {note.body && <p className="text-xs text-gray-500 line-clamp-3 whitespace-pre-wrap leading-relaxed">{note.body.slice(0, 200)}</p>}
-        <p className="text-[10px] text-gray-300 mt-2">{new Date(note.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>
+        <div className="flex items-center gap-2 mt-2">
+          <p className="text-[10px] text-gray-300">{new Date(note.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>
+          {note.sop_id && note.sopTitle && (
+            <span className="text-[10px] text-teal-500 flex items-center gap-0.5 truncate">
+              <Link2 className="w-2.5 h-2.5 flex-shrink-0" /> {note.sopTitle}
+            </span>
+          )}
+        </div>
       </button>
       {/* Quick delete — always visible, top-right corner */}
       <button
@@ -384,6 +392,15 @@ function NoteEditor({ note, people, currentUserId, isTeamNote, onBack, onChanged
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const readOnly = !note.canEdit
 
+  // SOP link
+  const [linkedSopId, setLinkedSopId] = useState<string | null>(note.sop_id)
+  const [linkedSopTitle, setLinkedSopTitle] = useState<string | null>(note.sopTitle)
+  const [showSopPicker, setShowSopPicker] = useState(false)
+  const [sopSearch, setSopSearch] = useState('')
+  const [sopResults, setSopResults] = useState<{ id: string; title: string }[]>([])
+  const [sopSearching, setSopSearching] = useState(false)
+  const sopDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const save = useCallback(async (patch: Record<string, unknown>) => {
     setSaved(false); setSaveError('')
     const r = await fetch(`/api/notes/${note.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) })
@@ -398,6 +415,31 @@ function NoteEditor({ note, people, currentUserId, isTeamNote, onBack, onChanged
 
   async function togglePin() { const v = !pinned; setPinned(v); await save({ pinned: v }) }
 
+  function searchSops(q: string) {
+    setSopSearch(q)
+    if (sopDebounce.current) clearTimeout(sopDebounce.current)
+    if (q.trim().length < 2) { setSopResults([]); setSopSearching(false); return }
+    setSopSearching(true)
+    sopDebounce.current = setTimeout(async () => {
+      const { createClient } = await import('@/lib/supabase/client')
+      const sb = createClient()
+      const { data } = await sb.from('sops').select('id, title').ilike('title', `%${q.trim()}%`).order('title').limit(10)
+      setSopResults((data ?? []) as { id: string; title: string }[])
+      setSopSearching(false)
+    }, 250)
+  }
+
+  async function linkSop(sop: { id: string; title: string }) {
+    setLinkedSopId(sop.id); setLinkedSopTitle(sop.title)
+    setShowSopPicker(false); setSopSearch(''); setSopResults([])
+    await save({ sopId: sop.id })
+  }
+
+  async function unlinkSop() {
+    setLinkedSopId(null); setLinkedSopTitle(null)
+    await save({ sopId: null })
+  }
+
   return (
     <div className="max-w-3xl mx-auto">
       <div className="flex items-center justify-between mb-4">
@@ -406,12 +448,62 @@ function NoteEditor({ note, people, currentUserId, isTeamNote, onBack, onChanged
           {isTeamNote && <span className="text-xs text-teal-600 bg-teal-50 border border-teal-200 rounded-full px-2.5 py-0.5 flex items-center gap-1"><Globe className="w-3 h-3" /> Team note</span>}
           <span className="text-xs text-gray-400">{saveError ? <span className="text-red-500">{saveError}</span> : saved ? 'Saved' : 'Saving…'}</span>
           {!readOnly && <button onClick={togglePin} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">{pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}</button>}
+          {!readOnly && <button onClick={() => setShowSopPicker(s => !s)} title="Link to SOP" className={`p-1.5 rounded-lg hover:bg-gray-100 ${showSopPicker ? 'text-teal-600 bg-teal-50' : linkedSopId ? 'text-teal-600' : 'text-gray-500'}`}><Link2 className="w-4 h-4" /></button>}
           {!isTeamNote && note.mine && <button onClick={() => setShowShare(s => !s)} className={`p-1.5 rounded-lg hover:bg-gray-100 ${showShare ? 'text-teal-600 bg-teal-50' : 'text-gray-500'}`}><Share2 className="w-4 h-4" /></button>}
           <button onClick={() => onDelete(note)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
         </div>
       </div>
+
+      {/* SOP link picker */}
+      {showSopPicker && (
+        <div className="bg-white border border-teal-200 rounded-2xl p-4 mb-4 space-y-3">
+          <p className="text-sm font-semibold text-navy-700 flex items-center gap-2"><Link2 className="w-4 h-4 text-teal-500" /> Link to a SOP</p>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            {sopSearching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />}
+            <input autoFocus value={sopSearch} onChange={e => searchSops(e.target.value)}
+              placeholder="Search SOPs by title…"
+              className="w-full pl-9 pr-9 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
+          </div>
+          {sopSearch.trim().length < 2 ? (
+            <p className="text-xs text-gray-400">Type at least 2 characters to search.</p>
+          ) : !sopSearching && sopResults.length === 0 ? (
+            <p className="text-xs text-gray-400">No SOPs found.</p>
+          ) : (
+            <ul className="space-y-1 max-h-48 overflow-y-auto">
+              {sopResults.map(s => (
+                <li key={s.id}>
+                  <button onClick={() => linkSop(s)}
+                    className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-teal-50 text-navy-700 flex items-center gap-2">
+                    <Link2 className="w-3.5 h-3.5 text-teal-400 flex-shrink-0" />
+                    {s.title}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {showShare && !isTeamNote && note.mine && <SharePanel noteId={note.id} people={people} currentUserId={currentUserId} />}
+
       <div className="bg-white border border-gray-200 rounded-2xl p-6">
+        {/* Linked SOP chip */}
+        {linkedSopId && linkedSopTitle && (
+          <div className="flex items-center gap-2 mb-4 p-2.5 bg-teal-50 border border-teal-200 rounded-xl">
+            <Link2 className="w-3.5 h-3.5 text-teal-500 flex-shrink-0" />
+            <a href={`/sops/${linkedSopId}`} target="_blank" rel="noopener noreferrer"
+              className="text-sm text-teal-700 font-medium hover:underline flex-1 truncate flex items-center gap-1">
+              {linkedSopTitle} <ExternalLink className="w-3 h-3 flex-shrink-0" />
+            </a>
+            {!readOnly && (
+              <button onClick={unlinkSop} title="Unlink SOP" className="text-teal-400 hover:text-red-500 flex-shrink-0">
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        )}
+
         <input value={title} disabled={readOnly} onChange={e => { setTitle(e.target.value); triggerSave({ title: e.target.value }) }} placeholder="Note title" className="w-full text-2xl font-bold text-navy-700 border-0 outline-none mb-4 bg-transparent placeholder:text-gray-300" />
         <MentionTextarea
           value={body} disabled={readOnly} people={people} minRows={12}

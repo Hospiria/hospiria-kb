@@ -25,6 +25,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   if (body.body !== undefined) patch.body = body.body.toString()
   if (body.color !== undefined) patch.color = body.color ? body.color.toString().slice(0, 24) : null
   if (body.pinned !== undefined) patch.pinned = !!body.pinned
+  if ('sopId' in body) patch.sop_id = body.sopId || null   // null = unlink
   if (Object.keys(patch).length === 0) return NextResponse.json({ success: true })
 
   const { error } = await supabase.from('notes').update(patch).eq('id', params.id)
