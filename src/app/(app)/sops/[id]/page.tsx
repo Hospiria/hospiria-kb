@@ -8,6 +8,7 @@ import { TiptapViewer } from '@/components/sops/TiptapViewer'
 import { VersionHistoryPanel } from '@/components/sops/VersionHistoryPanel'
 import { formatDateTime } from '@/lib/utils'
 import { Edit, ChevronLeft, CheckCircle, Clock, Link2, ChevronRight } from 'lucide-react'
+import { DeleteSopButton } from '@/components/sops/DeleteSopButton'
 import { getEffectiveSession } from '@/lib/impersonation'
 import { canEditAnySop, canApproveSop, canSeeAllDrafts, canCreateSop } from '@/lib/roles'
 import { createServiceClient } from '@/lib/supabase/server'
@@ -107,7 +108,7 @@ export default async function SopViewPage({ params }: { params: { id: string } }
                   v{sop.current_version}
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {canApprove && sop.status === 'submitted' && (
                   <Link
                     href={`/sops/${sop.id}/approve`}
@@ -125,6 +126,9 @@ export default async function SopViewPage({ params }: { params: { id: string } }
                     <Edit className="w-4 h-4" />
                     Edit
                   </Link>
+                )}
+                {profile.role === 'super_admin' && (
+                  <DeleteSopButton sopId={sop.id} sopTitle={sop.title} />
                 )}
               </div>
             </div>

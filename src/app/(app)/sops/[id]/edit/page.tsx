@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
 import { requirePage } from '@/lib/permissions-guard'
 import { SopEditor } from '@/components/sops/SopEditor'
+import { DeleteSopButton } from '@/components/sops/DeleteSopButton'
 import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
 
@@ -56,10 +57,15 @@ export default async function EditSopPage({ params }: { params: { id: string } }
 
   return (
     <div>
-      <Link href={`/sops/${params.id}`} className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-navy-700 mb-6 transition-colors">
-        <ChevronLeft className="w-4 h-4" />
-        Back to SOP
-      </Link>
+      <div className="flex items-center justify-between mb-6">
+        <Link href={`/sops/${params.id}`} className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-navy-700 transition-colors">
+          <ChevronLeft className="w-4 h-4" />
+          Back to SOP
+        </Link>
+        {profile.role === 'super_admin' && (
+          <DeleteSopButton sopId={params.id} sopTitle={sop.title} />
+        )}
+      </div>
       <h1 className="text-2xl font-bold text-navy-700 mb-6">Edit SOP</h1>
       <SopEditor
         sopId={params.id}

@@ -78,7 +78,7 @@ export async function POST(request: Request) {
     ? b.recurrenceDayOfWeek : (recurrence === 'weekly' ? 1 : null)
   const recurrenceWeekdaysOnly = recurrence === 'daily' ? !!b.recurrenceWeekdaysOnly : false
 
-  const insert = {
+  const insert: Record<string, unknown> = {
     owner_id: auth.userId,
     assignee_id: b.assigneeId || null,
     team_id: b.teamId || null,
@@ -87,10 +87,12 @@ export async function POST(request: Request) {
     due_date: b.dueDate || null,
     priority,
     recurrence,
-    recurrence_day_of_week: recurrenceDayOfWeek,
-    recurrence_weekdays_only: recurrenceWeekdaysOnly,
-    status: b.statusName || undefined,
   }
+  // Only include these if they have a non-default value — columns may not
+  // exist if migration 016 hasn't been run yet.
+  if (recurrenceDayOfWeek !== null) insert.recurrence_day_of_week = recurrenceDayOfWeek
+  if (recurrenceWeekdaysOnly) insert.recurrence_weekdays_only = true
+  if (b.statusName) insert.status = b.statusName.toString()
   const { data, error } = await supabase.from('todos').insert(insert).select('*').single()
   if (error || !data) return NextResponse.json({ error: error?.message ?? 'Create failed' }, { status: 500 })
 

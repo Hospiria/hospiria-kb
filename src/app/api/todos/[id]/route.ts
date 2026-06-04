@@ -31,8 +31,10 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       patch.completed_at = b.isDone ? new Date().toISOString() : null
     }
   }
-  if (b.recurrenceDayOfWeek !== undefined) patch.recurrence_day_of_week = b.recurrenceDayOfWeek
-  if (b.recurrenceWeekdaysOnly !== undefined) patch.recurrence_weekdays_only = !!b.recurrenceWeekdaysOnly
+  // Only set recurrence schedule columns if explicitly provided AND non-null
+  // (columns may not exist until migration 016 is run)
+  if (b.recurrenceDayOfWeek !== undefined && b.recurrenceDayOfWeek !== null) patch.recurrence_day_of_week = b.recurrenceDayOfWeek
+  if (b.recurrenceWeekdaysOnly !== undefined && b.recurrenceWeekdaysOnly !== false) patch.recurrence_weekdays_only = !!b.recurrenceWeekdaysOnly
   if (Object.keys(patch).length === 0) return NextResponse.json({ success: true })
 
   const { error } = await supabase.from('todos').update(patch).eq('id', params.id)
