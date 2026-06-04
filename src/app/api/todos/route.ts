@@ -74,6 +74,9 @@ export async function POST(request: Request) {
   if (!title) return NextResponse.json({ error: 'Title is required' }, { status: 400 })
   const priority = ['low', 'medium', 'high'].includes(b.priority) ? b.priority : 'medium'
   const recurrence = ['none', 'daily', 'weekly'].includes(b.recurrence) ? b.recurrence : 'none'
+  const recurrenceDayOfWeek = (b.recurrenceDayOfWeek != null && Number.isInteger(b.recurrenceDayOfWeek) && b.recurrenceDayOfWeek >= 0 && b.recurrenceDayOfWeek <= 6)
+    ? b.recurrenceDayOfWeek : (recurrence === 'weekly' ? 1 : null)
+  const recurrenceWeekdaysOnly = recurrence === 'daily' ? !!b.recurrenceWeekdaysOnly : false
 
   const insert = {
     owner_id: auth.userId,
@@ -84,7 +87,9 @@ export async function POST(request: Request) {
     due_date: b.dueDate || null,
     priority,
     recurrence,
-    status: b.statusName || undefined, // use provided status name if given
+    recurrence_day_of_week: recurrenceDayOfWeek,
+    recurrence_weekdays_only: recurrenceWeekdaysOnly,
+    status: b.statusName || undefined,
   }
   const { data, error } = await supabase.from('todos').insert(insert).select('*').single()
   if (error || !data) return NextResponse.json({ error: error?.message ?? 'Create failed' }, { status: 500 })

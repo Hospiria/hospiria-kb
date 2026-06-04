@@ -12,6 +12,8 @@ interface ParsedTodo {
   priority: 'low' | 'medium' | 'high'
   assigneeName: string | null
   recurrence: 'none' | 'daily' | 'weekly'
+  recurrence_day_of_week: number | null   // 0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri,6=Sat
+  recurrence_weekdays_only: boolean
   statusName: string | null
 }
 
@@ -57,13 +59,14 @@ Rules:
 - Resolve relative dates ("tomorrow", "next Tuesday", "Monday") to YYYY-MM-DD.
 - Known assignees: ${peopleList}. Only set assigneeName if clearly named.
 - Priority: "urgent"/"asap" → high; "whenever"/"low priority" → low; else medium.
-- Recurrence: "every day"/"daily"/"each morning" → "daily"; "every week"/"every Monday"/"weekly" → "weekly"; else "none".
-- Status: choose the closest match from [${statusList}] if the text implies one ("in progress", "blocked", "done", etc.). Else null.
-- Due date for weekly recurrences: set to next Monday if no other date given.
-- Due date for daily recurrences: set to today if no other date given.
+- Recurrence: "every day"/"daily"/"each morning" → "daily"; "every [weekday]"/"weekly" → "weekly"; else "none".
+- For WEEKLY: extract which day — "every Tuesday" → recurrence_day_of_week:2; "every Friday" → 5. Days: 0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri,6=Sat. Default 1 (Mon) if day not mentioned.
+- For DAILY: if "weekdays"/"Monday to Friday"/"Mon-Fri" → recurrence_weekdays_only:true; else false.
+- Status: closest match from [${statusList}] if text implies one. Else null.
+- Due date: for weekly set to next occurrence of the recurrence day; for daily set to today.
 
 Respond with ONLY this JSON, no prose:
-{"title":"short imperative task","detail":"extra context or null","due_date":"YYYY-MM-DD or null","priority":"low|medium|high","assigneeName":"exact name or null","recurrence":"none|daily|weekly","statusName":"exact status name or null"}`,
+{"title":"short imperative task","detail":"extra context or null","due_date":"YYYY-MM-DD or null","priority":"low|medium|high","assigneeName":"exact name or null","recurrence":"none|daily|weekly","recurrence_day_of_week":null,"recurrence_weekdays_only":false,"statusName":"exact status name or null"}`,
       messages: [{ role: 'user', content: text.toString() }],
     })
     const out = resp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join('')
@@ -89,6 +92,9 @@ Respond with ONLY this JSON, no prose:
 
   const recurrence = ['none', 'daily', 'weekly'].includes(parsed.recurrence ?? '') ? parsed.recurrence : 'none'
 
+  const dow = parsed.recurrence_day_of_week
+  const validDow = (dow != null && Number.isInteger(dow) && dow >= 0 && dow <= 6) ? dow : (recurrence === 'weekly' ? 1 : null)
+
   return NextResponse.json({
     draft: {
       title: parsed.title.slice(0, 300),
@@ -98,6 +104,8 @@ Respond with ONLY this JSON, no prose:
       assigneeId,
       assigneeName: assigneeId ? parsed.assigneeName : null,
       recurrence,
+      recurrenceDayOfWeek: validDow,
+      recurrenceWeekdaysOnly: recurrence === 'daily' ? !!parsed.recurrence_weekdays_only : false,
       statusName: validStatus,
     },
   })

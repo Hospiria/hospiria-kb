@@ -27,6 +27,7 @@ interface Todo {
   title: string; detail: string | null; due_date: string | null
   priority: 'low' | 'medium' | 'high'; status: string; is_done: boolean
   recurrence: 'none' | 'daily' | 'weekly'; recurrence_parent_id: string | null; is_carry: boolean
+  recurrence_day_of_week: number | null; recurrence_weekdays_only: boolean
   deleted_at: string | null; deleted_by: string | null; deletedByName: string | null
   mine: boolean; assignedToMe: boolean; ownerName: string | null
   assigneeName: string | null; teamName: string | null
@@ -517,6 +518,8 @@ function AddTaskForm({ statuses, people, teams, currentTeamId, defaultRecurrence
   const [mAssigneeId, setMAssigneeId] = useState('')
   const [mTeamId, setMTeamId] = useState(currentTeamId ?? '')
   const [mRecurrence, setMRecurrence] = useState<'none' | 'daily' | 'weekly'>(defaultRecurrence ?? 'none')
+  const [mDayOfWeek, setMDayOfWeek] = useState(1)           // 1 = Monday default
+  const [mWeekdaysOnly, setMWeekdaysOnly] = useState(false)
 
   async function addViaAI() {
     const text = aiInput.trim(); if (!text || adding) return
@@ -531,7 +534,10 @@ function AddTaskForm({ statuses, people, teams, currentTeamId, defaultRecurrence
         body: JSON.stringify({
           title: draft.title, detail: draft.detail, dueDate: draft.dueDate,
           priority: draft.priority, assigneeId: draft.assigneeId,
-          teamId: currentTeamId, recurrence: draft.recurrence ?? defaultRecurrence ?? 'none',
+          teamId: currentTeamId,
+          recurrence: draft.recurrence ?? defaultRecurrence ?? 'none',
+          recurrenceDayOfWeek: draft.recurrenceDayOfWeek ?? null,
+          recurrenceWeekdaysOnly: draft.recurrenceWeekdaysOnly ?? false,
           statusName: draft.statusName,
         }),
       })
@@ -552,6 +558,8 @@ function AddTaskForm({ statuses, people, teams, currentTeamId, defaultRecurrence
           assigneeId: mAssigneeId || null,
           teamId: mTeamId || null,
           recurrence: mRecurrence,
+          recurrenceDayOfWeek: mRecurrence === 'weekly' ? mDayOfWeek : null,
+          recurrenceWeekdaysOnly: mRecurrence === 'daily' ? mWeekdaysOnly : false,
           statusName: mStatus,
           isDone: selectedStatus?.is_done ?? false,
         }),
@@ -616,9 +624,30 @@ function AddTaskForm({ statuses, people, teams, currentTeamId, defaultRecurrence
                 className="w-full mt-1 text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white">
                 <option value="none">One-off</option>
                 <option value="daily">Daily</option>
-                <option value="weekly">Weekly (Mon)</option>
+                <option value="weekly">Weekly</option>
               </select>
             </label>
+            {/* Weekly: day-of-week picker */}
+            {mRecurrence === 'weekly' && (
+              <label className="text-[11px] text-gray-500 sm:col-span-2">Repeats on
+                <div className="flex gap-1 mt-1 flex-wrap">
+                  {[['Mon',1],['Tue',2],['Wed',3],['Thu',4],['Fri',5],['Sat',6],['Sun',0]].map(([label, val]) => (
+                    <button key={val} type="button"
+                      onClick={() => setMDayOfWeek(val as number)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${mDayOfWeek === val ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-gray-600 border-gray-200 hover:border-teal-300'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </label>
+            )}
+            {/* Daily: weekdays-only toggle */}
+            {mRecurrence === 'daily' && (
+              <label className="text-[11px] text-gray-500 flex items-center gap-2 cursor-pointer sm:col-span-2 mt-1">
+                <input type="checkbox" checked={mWeekdaysOnly} onChange={e => setMWeekdaysOnly(e.target.checked)} className="rounded text-teal-500" />
+                Weekdays only (Mon–Fri)
+              </label>
+            )}
             <label className="text-[11px] text-gray-500">Due date
               <input type="date" value={mDueDate} onChange={e => setMDueDate(e.target.value)}
                 className="w-full mt-1 text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white" />
@@ -764,7 +793,9 @@ function TodoRow({ t, people, teams, statuses, expanded, onExpand, onStatusChang
             {/* Recurrence badge */}
             {t.recurrence !== 'none' && (
               <span className="text-[10px] text-gray-400 border border-gray-200 rounded px-1.5 py-0.5 flex-shrink-0">
-                {t.recurrence === 'daily' ? '↻ daily' : '↻ weekly'}
+                {t.recurrence === 'daily'
+                  ? `↻ ${t.recurrence_weekdays_only ? 'weekdays' : 'daily'}`
+                  : `↻ ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][t.recurrence_day_of_week ?? 1]}`}
               </span>
             )}
           </div>

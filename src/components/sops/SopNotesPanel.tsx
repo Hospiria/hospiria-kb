@@ -72,21 +72,21 @@ export function SopNotesPanel({ sopId, teams, people }: {
 
       {/* Compose */}
       <div className="bg-white border border-gray-200 rounded-xl p-3 space-y-2">
-        {/* Personal vs Team toggle */}
-        <div className="flex gap-1.5 text-xs">
-          <button
-            onClick={() => setTeamId('')}
-            className={`flex items-center gap-1 px-2.5 py-1 rounded-full border transition-colors ${!teamId ? 'bg-navy-700 text-white border-navy-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+        {/* Personal vs Team — dropdown */}
+        <div className="flex items-center gap-2">
+          {!teamId
+            ? <Lock className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+            : <Globe className="w-3.5 h-3.5 text-teal-500 flex-shrink-0" />}
+          <select
+            value={teamId}
+            onChange={e => setTeamId(e.target.value)}
+            className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white text-gray-700"
           >
-            <Lock className="w-3 h-3" /> Personal
-          </button>
-          {teams.map(t => (
-            <button key={t.id} onClick={() => setTeamId(t.id)}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-full border transition-colors ${teamId === t.id ? 'bg-navy-700 text-white border-navy-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
-            >
-              <Globe className="w-3 h-3" /> {t.name}
-            </button>
-          ))}
+            <option value="">🔒 Personal (only me)</option>
+            {teams.map(t => (
+              <option key={t.id} value={t.id}>🌐 {t.name}</option>
+            ))}
+          </select>
         </div>
         <MentionTextarea
           value={body} people={people} minRows={2}
