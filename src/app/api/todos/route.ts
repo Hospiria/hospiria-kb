@@ -73,6 +73,7 @@ export async function POST(request: Request) {
   const title = (b.title ?? '').toString().trim().slice(0, 300)
   if (!title) return NextResponse.json({ error: 'Title is required' }, { status: 400 })
   const priority = ['low', 'medium', 'high'].includes(b.priority) ? b.priority : 'medium'
+  const recurrence = ['none', 'daily', 'weekly'].includes(b.recurrence) ? b.recurrence : 'none'
 
   const insert = {
     owner_id: auth.userId,
@@ -82,6 +83,8 @@ export async function POST(request: Request) {
     detail: b.detail ? b.detail.toString() : null,
     due_date: b.dueDate || null,
     priority,
+    recurrence,
+    status: b.statusName || undefined, // use provided status name if given
   }
   const { data, error } = await supabase.from('todos').insert(insert).select('*').single()
   if (error || !data) return NextResponse.json({ error: error?.message ?? 'Create failed' }, { status: 500 })

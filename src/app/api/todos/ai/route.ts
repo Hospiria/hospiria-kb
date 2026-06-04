@@ -8,9 +8,11 @@ import Anthropic from '@anthropic-ai/sdk'
 interface ParsedTodo {
   title: string
   detail: string | null
-  due_date: string | null   // YYYY-MM-DD
+  due_date: string | null
   priority: 'low' | 'medium' | 'high'
   assigneeName: string | null
+  recurrence: 'none' | 'daily' | 'weekly'
+  statusName: string | null
 }
 
 function parseJsonObject<T>(text: string): T | null {
@@ -19,8 +21,6 @@ function parseJsonObject<T>(text: string): T | null {
   try { return JSON.parse(text.slice(a, b + 1)) as T } catch { return null }
 }
 
-// POST { text } — turn natural language into a structured to-do draft.
-// Returns the draft (NOT yet created) so the user can confirm/tweak.
 export async function POST(request: Request) {
   const auth = await requireFeature('notes', 'edit')
   if ('error' in auth) return auth.error
@@ -33,11 +33,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Type what you need to do.' }, { status: 400 })
   }
 
-  // People list for assignee matching.
   const db = createServiceClient()
-  const { data: peopleRows } = await db.from('profiles').select('id, full_name').order('full_name')
+  const [{ data: peopleRows }, { data: statusRows }] = await Promise.all([
+    db.from('profiles').select('id, full_name').order('full_name'),
+    db.from('todo_statuses').select('id, name, is_done').order('position'),
+  ])
   const people = (peopleRows ?? []) as { id: string; full_name: string | null }[]
+  const statuses = (statusRows ?? []) as { id: string; name: string; is_done: boolean }[]
   const peopleList = people.map(p => p.full_name).filter(Boolean).join(', ') || '(none)'
+  const statusList = statuses.map(s => s.name).join(', ') || 'To Do, In Progress, Completed'
   const today = new Date().toISOString().slice(0, 10)
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -45,13 +49,21 @@ export async function POST(request: Request) {
   try {
     const resp = await anthropic.messages.create({
       model: 'claude-haiku-4-5',
-      max_tokens: 400,
-      system: `You convert a short note into a single structured to-do for a property-management team.
-Today is ${today}. Resolve relative dates ("tomorrow", "next Tuesday", "Friday") to an absolute YYYY-MM-DD.
-Known people you may assign to: ${peopleList}. Only set assigneeName if the text clearly names one of them.
-Infer priority from urgency words ("urgent"/"asap" => high; "whenever"/"sometime" => low; else medium).
+      max_tokens: 500,
+      system: `You convert a short note into a structured to-do for a property-management team.
+Today is ${today}.
+
+Rules:
+- Resolve relative dates ("tomorrow", "next Tuesday", "Monday") to YYYY-MM-DD.
+- Known assignees: ${peopleList}. Only set assigneeName if clearly named.
+- Priority: "urgent"/"asap" → high; "whenever"/"low priority" → low; else medium.
+- Recurrence: "every day"/"daily"/"each morning" → "daily"; "every week"/"every Monday"/"weekly" → "weekly"; else "none".
+- Status: choose the closest match from [${statusList}] if the text implies one ("in progress", "blocked", "done", etc.). Else null.
+- Due date for weekly recurrences: set to next Monday if no other date given.
+- Due date for daily recurrences: set to today if no other date given.
+
 Respond with ONLY this JSON, no prose:
-{"title":"short imperative task","detail":"extra context or null","due_date":"YYYY-MM-DD or null","priority":"low|medium|high","assigneeName":"exact name from the list or null"}`,
+{"title":"short imperative task","detail":"extra context or null","due_date":"YYYY-MM-DD or null","priority":"low|medium|high","assigneeName":"exact name or null","recurrence":"none|daily|weekly","statusName":"exact status name or null"}`,
       messages: [{ role: 'user', content: text.toString() }],
     })
     const out = resp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join('')
@@ -62,13 +74,20 @@ Respond with ONLY this JSON, no prose:
   }
   if (!parsed?.title) return NextResponse.json({ error: 'Could not understand that — try rephrasing.' }, { status: 500 })
 
-  // Map assignee name → id.
+  // Map assignee name → id
   let assigneeId: string | null = null
   if (parsed.assigneeName) {
     const match = people.find(p => (p.full_name ?? '').toLowerCase() === parsed!.assigneeName!.toLowerCase())
       ?? people.find(p => (p.full_name ?? '').toLowerCase().includes(parsed!.assigneeName!.toLowerCase()))
     assigneeId = match?.id ?? null
   }
+
+  // Resolve status name → confirm it exists, else null
+  const validStatus = parsed.statusName
+    ? (statuses.find(s => s.name.toLowerCase() === parsed!.statusName!.toLowerCase())?.name ?? null)
+    : null
+
+  const recurrence = ['none', 'daily', 'weekly'].includes(parsed.recurrence ?? '') ? parsed.recurrence : 'none'
 
   return NextResponse.json({
     draft: {
@@ -78,6 +97,8 @@ Respond with ONLY this JSON, no prose:
       priority: ['low', 'medium', 'high'].includes(parsed.priority) ? parsed.priority : 'medium',
       assigneeId,
       assigneeName: assigneeId ? parsed.assigneeName : null,
+      recurrence,
+      statusName: validStatus,
     },
   })
 }
