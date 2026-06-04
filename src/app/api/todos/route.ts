@@ -22,8 +22,8 @@ export async function GET(request: Request) {
 
   let query = supabase
     .from('todos')
-    .select('id, owner_id, assignee_id, team_id, title, detail, due_date, priority, status, updated_at, created_at, deleted_at, deleted_by')
-    .order('status', { ascending: true })
+    .select('*')
+    .order('is_done', { ascending: true })
     .order('due_date', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: false })
 
