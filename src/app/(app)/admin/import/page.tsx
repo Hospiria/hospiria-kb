@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { requirePage } from '@/lib/permissions-guard'
-import { CsvImport } from '@/components/admin/CsvImport'
+import { ImportTabs } from '@/components/admin/ImportTabs'
 
 export default async function AdminImportPage() {
   await requirePage('import_sops', 'edit')
@@ -14,5 +14,5 @@ export default async function AdminImportPage() {
   const { data: teams } = await supabase.from('teams').select('*')
   const { data: categories } = await supabase.from('categories').select('*, teams(name)').order('display_order')
 
-  return <CsvImport teams={teams ?? []} categories={categories ?? []} authorId={user.id} />
+  return <ImportTabs teams={teams ?? []} categories={categories ?? []} authorId={user.id} />
 }
