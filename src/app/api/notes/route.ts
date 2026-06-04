@@ -1,5 +1,6 @@
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { requireFeature } from '@/lib/permissions-guard'
+import { getEffectiveSession } from '@/lib/impersonation'
 import { NextResponse } from 'next/server'
 
 interface NoteRow {
@@ -11,7 +12,12 @@ interface NoteRow {
 export async function GET(request: Request) {
   const auth = await requireFeature('notes', 'view')
   if ('error' in auth) return auth.error
-  const supabase = createClient()
+
+  // When masquerading: use service client + filter by the impersonated user's ID
+  const session = await getEffectiveSession()
+  const isImpersonating = session?.isImpersonating ?? false
+  const effectiveUserId = session?.effectiveUserId ?? auth.userId
+  const supabase = isImpersonating ? createServiceClient() : createClient()
 
   const { searchParams } = new URL(request.url)
   const space = searchParams.get('space')
@@ -24,8 +30,13 @@ export async function GET(request: Request) {
     .order('pinned', { ascending: false })
     .order('updated_at', { ascending: false })
 
-  if (space === 'personal') query = query.is('team_id', null)
-  else if (teamId) query = query.eq('team_id', teamId)
+  if (space === 'personal') {
+    query = query.is('team_id', null)
+    // When masquerading, RLS won't scope to the effective user — filter explicitly
+    if (isImpersonating) query = query.eq('owner_id', effectiveUserId)
+  } else if (teamId) {
+    query = query.eq('team_id', teamId)
+  }
 
   // Active vs trash
   if (trash) query = query.not('deleted_at', 'is', null)
@@ -36,9 +47,9 @@ export async function GET(request: Request) {
 
   const rows = (data ?? []) as NoteRow[]
 
-  // Resolve share permissions for personal notes
+  // Resolve share permissions for personal notes (always use effective user's shares)
   const { data: myShares } = await supabase
-    .from('note_shares').select('note_id, can_edit').eq('user_id', auth.userId)
+    .from('note_shares').select('note_id, can_edit').eq('user_id', effectiveUserId)
   const shareMap = new Map((myShares ?? []).map(s => [s.note_id, s.can_edit]))
 
   // Resolve deleter names for trash view
@@ -60,9 +71,9 @@ export async function GET(request: Request) {
     const isTeamNote = !!n.team_id
     return {
       ...n,
-      mine: n.owner_id === auth.userId,
-      canEdit: isTeamNote || n.owner_id === auth.userId || shareMap.get(n.id) === true,
-      shared: !isTeamNote && n.owner_id !== auth.userId,
+      mine: n.owner_id === effectiveUserId,
+      canEdit: isTeamNote || n.owner_id === effectiveUserId || shareMap.get(n.id) === true,
+      shared: !isTeamNote && n.owner_id !== effectiveUserId,
       deletedByName: n.deleted_by ? (deleterById.get(n.deleted_by) ?? null) : null,
       sopTitle: n.sop_id ? (sopTitleById.get(n.sop_id) ?? null) : null,
     }

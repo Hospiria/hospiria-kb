@@ -1,5 +1,6 @@
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { requireFeature } from '@/lib/permissions-guard'
+import { getEffectiveSession } from '@/lib/impersonation'
 import { NextResponse } from 'next/server'
 import { sendTodoNotification } from '@/lib/notifications/teams'
 
@@ -14,7 +15,15 @@ interface TodoRow {
 export async function GET(request: Request) {
   const auth = await requireFeature('notes', 'view')
   if ('error' in auth) return auth.error
-  const supabase = createClient()
+
+  // When masquerading as another user, use the service client (bypasses RLS)
+  // and filter explicitly by the effective user's ID so we see THEIR todos,
+  // not the admin's. Without this, RLS runs as the real JWT (the admin)
+  // and returns the admin's own todos even while impersonating someone else.
+  const session = await getEffectiveSession()
+  const isImpersonating = session?.isImpersonating ?? false
+  const effectiveUserId = session?.effectiveUserId ?? auth.userId
+  const supabase = isImpersonating ? createServiceClient() : createClient()
 
   const { searchParams } = new URL(request.url)
   const space = searchParams.get('space')
@@ -28,8 +37,15 @@ export async function GET(request: Request) {
     .order('due_date', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: false })
 
-  if (space === 'personal') query = query.is('team_id', null)
-  else if (teamId) query = query.eq('team_id', teamId)
+  if (space === 'personal') {
+    query = query.is('team_id', null)
+    // When masquerading, RLS won't scope to the effective user — add explicit filter
+    if (isImpersonating) {
+      query = query.or(`owner_id.eq.${effectiveUserId},assignee_id.eq.${effectiveUserId}`)
+    }
+  } else if (teamId) {
+    query = query.eq('team_id', teamId)
+  }
 
   if (trash) query = query.not('deleted_at', 'is', null)
   else query = query.is('deleted_at', null)
@@ -55,8 +71,8 @@ export async function GET(request: Request) {
 
   const todos = rows.map(t => ({
     ...t,
-    mine: t.owner_id === auth.userId,
-    assignedToMe: t.assignee_id === auth.userId,
+    mine: t.owner_id === effectiveUserId,
+    assignedToMe: t.assignee_id === effectiveUserId,
     ownerName: nameById.get(t.owner_id) ?? null,
     assigneeName: t.assignee_id ? nameById.get(t.assignee_id) ?? null : null,
     teamName: t.team_id ? teamById.get(t.team_id) ?? null : null,
