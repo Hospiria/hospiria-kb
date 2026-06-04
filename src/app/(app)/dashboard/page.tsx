@@ -18,10 +18,11 @@ export default async function DashboardPage() {
   const supabase = createClient()
   const db = createServiceClient()
 
-  // Dashboard card visibility preferences
+  // Dashboard card visibility + layout preferences
   const { data: prefs } = await supabase
-    .from('dashboard_preferences').select('hidden_cards').eq('user_id', effectiveUserId).single()
+    .from('dashboard_preferences').select('hidden_cards, card_layout').eq('user_id', effectiveUserId).single()
   const hiddenCards: string[] = prefs?.hidden_cards ?? []
+  const cardLayout = (prefs?.card_layout ?? {}) as { order?: string[]; spans?: Record<string, number> }
 
   // ── Super admin keeps existing rich dashboard ─────────────────────────
   if (role === 'super_admin') {
@@ -38,10 +39,10 @@ export default async function DashboardPage() {
       supabase.from('teams').select('id, name').order('name'),
       supabase.from('profiles').select('id, full_name, primary_team_id'),
       supabase.from('todos').select('*').eq('owner_id', effectiveUserId).is('deleted_at', null).eq('is_done', false)
-        .order('due_date', { ascending: true, nullsFirst: false }).limit(10),
+        .order('due_date', { ascending: true, nullsFirst: false }).limit(50),
     ])
     return (
-      <DashboardGrid profile={profile} role="super_admin" hiddenCards={hiddenCards} userId={effectiveUserId}
+      <DashboardGrid profile={profile} role="super_admin" hiddenCards={hiddenCards} cardLayout={cardLayout} userId={effectiveUserId}
         data={{ myTasks: myTasks ?? [], sopsPending: [], membersToChase: [], teamQuizStats: [], teamSops: [], myNotes: [], myCourses: [], mySops: [], teamName: null }}
         adminChildren={
           <AdminDashboardClient
@@ -70,7 +71,7 @@ export default async function DashboardPage() {
     supabase.from('todos').select('*')
       .or(`owner_id.eq.${effectiveUserId},assignee_id.eq.${effectiveUserId}`)
       .is('deleted_at', null).eq('is_done', false)
-      .order('due_date', { ascending: true, nullsFirst: false }).limit(10),
+      .order('due_date', { ascending: true, nullsFirst: false }).limit(50),
     supabase.from('notes').select('id, title, body, pinned, updated_at, sop_id')
       .is('deleted_at', null).order('pinned', { ascending: false }).order('updated_at', { ascending: false }).limit(5),
     supabase.from('quiz_enrollments')
@@ -135,7 +136,7 @@ export default async function DashboardPage() {
 
   return (
     <DashboardGrid
-      profile={profile} role={role} hiddenCards={hiddenCards} userId={effectiveUserId}
+      profile={profile} role={role} hiddenCards={hiddenCards} cardLayout={cardLayout} userId={effectiveUserId}
       data={{
         myTasks: myTasks ?? [], sopsPending: sopsPending ?? [],
         membersToChase, teamQuizStats, teamSops: teamSops ?? [],
