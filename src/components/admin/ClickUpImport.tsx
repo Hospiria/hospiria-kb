@@ -234,11 +234,13 @@ export function ClickUpImport({ teams, categories }: { teams: Team[]; categories
   // ── Connect ──────────────────────────────────────────────────────────
   async function handleConnect() {
     setConnecting(true); setError('')
+    const trimmedToken = token.trim()
+    setToken(trimmedToken)
     try {
-      const res = await fetch('/api/admin/clickup/workspaces', { headers: { 'x-clickup-token': token } })
+      const res = await fetch('/api/admin/clickup/workspaces', { headers: { 'x-clickup-token': trimmedToken } })
       const data = await res.json()
       if (!res.ok) { setError(data.error ?? 'Connection failed'); return }
-      localStorage.setItem('cu_token', token)
+      localStorage.setItem('cu_token', trimmedToken)
       setWorkspaces(data.workspaces)
       const wsId = data.workspaces.length === 1 ? data.workspaces[0].id : ''
       if (wsId) { setWorkspaceId(wsId); await loadDocs(wsId) }
