@@ -30,19 +30,20 @@ const CARD_CATALOGUE: {
   { key: 'my_sops',      label: 'My SOPs',           description: 'SOPs you have written',               icon: FileText,      roles: ['team_leader','junior_team_leader','approver'], defaultSpan: 6 },
 ]
 
-const ALLOWED_SPANS = [4, 6, 8, 12]
-const GRID_GAP = 16 // px — matches gap-4
 const DEFAULT_HEIGHT = 420
-const MIN_HEIGHT = 150
-const MAX_HEIGHT = 820
-const snapSpan = (n: number) =>
-  ALLOWED_SPANS.reduce((best, s) => (Math.abs(s - n) < Math.abs(best - n) ? s : best), ALLOWED_SPANS[0])
-const clampHeight = (n: number) => Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, n))
+
+// Simple, discrete sizes — no pixel fiddling.
+const WIDTH_OPTS: { label: string; span: number }[] = [
+  { label: '⅓', span: 4 }, { label: '½', span: 6 }, { label: 'Full', span: 12 },
+]
+const HEIGHT_OPTS: { label: string; px: number }[] = [
+  { label: 'S', px: 260 }, { label: 'M', px: 420 }, { label: 'L', px: 640 },
+]
 
 // Lets each card's header render a drag grip (ClickUp-style) without threading
 // props through every card component. The grid supplies the draggable handlers.
 type DragProps = { draggable?: boolean; onDragStart?: (e: React.DragEvent) => void; onDragEnd?: () => void }
-const CardDragContext = createContext<{ editing: boolean; dragProps?: DragProps }>({ editing: false })
+const CardDragContext = createContext<{ dragProps?: DragProps }>({})
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -95,12 +96,7 @@ export function DashboardGrid({ profile, role, hiddenCards: initialHidden, cardL
     return out
   })
 
-  const gridRef = useRef<HTMLDivElement>(null)
   const dragKey = useRef<string | null>(null)
-  const resizeState = useRef<{
-    key: string; axes: { x: boolean; y: boolean }
-    startX: number; startY: number; startSpan: number; startHeight: number; unit: number
-  } | null>(null)
 
   // ── Persistence ──────────────────────────────────────────────────────────
   const persist = useCallback(async (body: Record<string, unknown>) => {
@@ -145,36 +141,14 @@ export function DashboardGrid({ profile, role, hiddenCards: initialHidden, cardL
     dragKey.current = null
   }
 
-  // ── Drag to resize (x = width/span, y = height) ──────────────────────────
-  const startResize = (key: string, axes: { x: boolean; y: boolean }) => (e: React.PointerEvent) => {
-    e.preventDefault(); e.stopPropagation()
-    const rect = gridRef.current?.getBoundingClientRect()
-    const unit = rect ? (rect.width + GRID_GAP) / 12 : 80
-    resizeState.current = {
-      key, axes, unit,
-      startX: e.clientX, startY: e.clientY,
-      startSpan: spans[key] ?? 6, startHeight: heights[key] ?? DEFAULT_HEIGHT,
-    }
-    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+  // ── Simple size setters (buttons, no dragging) ────────────────────────────
+  const setWidth = (key: string, span: number) => {
+    const next = { ...spans, [key]: span }
+    setSpans(next); saveLayout(order, next, heights)
   }
-  const onResizeMove = (e: React.PointerEvent) => {
-    const rs = resizeState.current
-    if (!rs) return
-    if (rs.axes.x) {
-      const deltaCols = Math.round((e.clientX - rs.startX) / rs.unit)
-      const snapped = snapSpan(Math.min(12, Math.max(4, rs.startSpan + deltaCols)))
-      setSpans(prev => (prev[rs.key] === snapped ? prev : { ...prev, [rs.key]: snapped }))
-    }
-    if (rs.axes.y) {
-      const h = clampHeight(rs.startHeight + (e.clientY - rs.startY))
-      setHeights(prev => (prev[rs.key] === h ? prev : { ...prev, [rs.key]: h }))
-    }
-  }
-  const endResize = (e: React.PointerEvent) => {
-    if (!resizeState.current) return
-    ;(e.target as HTMLElement).releasePointerCapture?.(e.pointerId)
-    resizeState.current = null
-    saveLayout(order, spans, heights)
+  const setHeight = (key: string, px: number) => {
+    const next = { ...heights, [key]: px }
+    setHeights(next); saveLayout(order, spans, next)
   }
 
   const visibleOrdered = order.filter(k => availableKeys.includes(k) && !hidden.has(k))
@@ -242,68 +216,50 @@ export function DashboardGrid({ profile, role, hiddenCards: initialHidden, cardL
       {role === 'super_admin' && adminChildren && <div className="mb-6">{adminChildren}</div>}
 
       {/* Cards grid */}
-      <div ref={gridRef} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start [grid-auto-flow:row_dense]">
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start [grid-auto-flow:row_dense]">
         {visibleOrdered.map(key => (
           <div
             key={key}
             style={{ gridColumn: `span ${spans[key] ?? 6}`, ['--card-h' as string]: `${heights[key] ?? DEFAULT_HEIGHT}px` } as React.CSSProperties}
             className={`relative ${editing ? 'ring-2 ring-navy-100 rounded-2xl' : ''}`}
-            onDragEnter={editing ? handleDragEnter(key) : undefined}
-            onDragOver={editing ? (e) => e.preventDefault() : undefined}
+            onDragEnter={handleDragEnter(key)}
+            onDragOver={(e) => e.preventDefault()}
           >
-            {/* Card content (non-interactive while editing so clicks don't navigate;
-                the header drag grip re-enables its own pointer events) */}
+            {/* Card content. Drag-to-reorder is always available via the header
+                grip. Only in edit mode do we make the body inert so clicks land
+                on the size/hide toolbar instead of navigating. */}
             <div className={editing ? 'pointer-events-none select-none' : ''}>
               <CardDragContext.Provider value={{
-                editing,
-                dragProps: editing ? { draggable: true, onDragStart: handleDragStart(key), onDragEnd: handleDragEnd } : undefined,
+                dragProps: { draggable: true, onDragStart: handleDragStart(key), onDragEnd: handleDragEnd },
               }}>
                 {renderCard(key)}
               </CardDragContext.Provider>
             </div>
 
-            {/* Edit handles */}
+            {/* Size + hide toolbar (edit mode only) */}
             {editing && (
-              <>
-                {/* Hide */}
-                <button
-                  onClick={() => toggleCard(key)}
-                  title="Hide this card"
-                  className="absolute top-2 right-2 z-20 p-1 rounded-md bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-200 shadow-sm">
+              <div className="absolute top-2 right-2 z-30 flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg shadow-sm px-1.5 py-1 pointer-events-auto">
+                <span className="text-[10px] text-gray-400 font-semibold pl-0.5">W</span>
+                {WIDTH_OPTS.map(w => (
+                  <button key={w.label} onClick={() => setWidth(key, w.span)}
+                    className={`text-[11px] font-bold w-6 h-5 rounded transition-colors ${(spans[key] ?? 6) === w.span ? 'bg-navy-700 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
+                    {w.label}
+                  </button>
+                ))}
+                <span className="w-px h-4 bg-gray-200 mx-0.5" />
+                <span className="text-[10px] text-gray-400 font-semibold">H</span>
+                {HEIGHT_OPTS.map(h => (
+                  <button key={h.label} onClick={() => setHeight(key, h.px)}
+                    className={`text-[11px] font-bold w-5 h-5 rounded transition-colors ${(heights[key] ?? DEFAULT_HEIGHT) === h.px ? 'bg-navy-700 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
+                    {h.label}
+                  </button>
+                ))}
+                <span className="w-px h-4 bg-gray-200 mx-0.5" />
+                <button onClick={() => toggleCard(key)} title="Hide this card"
+                  className="p-1 rounded text-gray-400 hover:text-red-500">
                   <EyeOff className="w-3.5 h-3.5" />
                 </button>
-                {/* Resize handle — right edge (width) */}
-                <div
-                  onPointerDown={startResize(key, { x: true, y: false })}
-                  onPointerMove={onResizeMove}
-                  onPointerUp={endResize}
-                  title="Drag to resize width"
-                  className="absolute top-0 right-0 h-full w-3 z-20 cursor-ew-resize flex items-center justify-center group">
-                  <div className="h-12 w-1.5 rounded-full bg-navy-300 group-hover:bg-navy-500 transition-colors" />
-                </div>
-                {/* Resize handle — bottom edge (height) */}
-                <div
-                  onPointerDown={startResize(key, { x: false, y: true })}
-                  onPointerMove={onResizeMove}
-                  onPointerUp={endResize}
-                  title="Drag to resize height"
-                  className="absolute bottom-0 left-0 w-full h-3 z-20 cursor-ns-resize flex items-center justify-center group">
-                  <div className="w-12 h-1.5 rounded-full bg-navy-300 group-hover:bg-navy-500 transition-colors" />
-                </div>
-                {/* Resize handle — corner (both) */}
-                <div
-                  onPointerDown={startResize(key, { x: true, y: true })}
-                  onPointerMove={onResizeMove}
-                  onPointerUp={endResize}
-                  title="Drag to resize both"
-                  className="absolute bottom-0 right-0 w-5 h-5 z-30 cursor-nwse-resize flex items-end justify-end p-1 group">
-                  <div className="w-2.5 h-2.5 border-r-2 border-b-2 border-navy-300 group-hover:border-navy-500 transition-colors" />
-                </div>
-                {/* Size badge */}
-                <span className="absolute bottom-2 left-3 z-20 text-[10px] font-bold text-navy-400 bg-white/80 px-1.5 rounded">
-                  {Math.round(((spans[key] ?? 6) / 12) * 100)}% w · {heights[key] ?? DEFAULT_HEIGHT}px h
-                </span>
-              </>
+              </div>
             )}
           </div>
         ))}
@@ -333,19 +289,17 @@ function CardShell({ title, icon: Icon, count, href, color = 'teal', headerRight
     teal:  'bg-teal-50 text-teal-600', amber: 'bg-amber-50 text-amber-600',
     red:   'bg-red-50 text-red-600',   navy:  'bg-navy-50 text-navy-600',
   }
-  const { editing, dragProps } = useContext(CardDragContext)
+  const { dragProps } = useContext(CardDragContext)
   return (
     <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm h-full flex flex-col">
-      <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 min-w-0">
-          {editing && (
-            <span
-              {...dragProps}
-              title="Drag to move"
-              className="pointer-events-auto cursor-grab active:cursor-grabbing text-gray-300 hover:text-navy-600 flex-shrink-0 -ml-1.5">
-              <GripVertical className="w-4 h-4" />
-            </span>
-          )}
+      <div className="px-4 py-3.5 border-b border-gray-100 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span
+            {...dragProps}
+            title="Drag to move card"
+            className="pointer-events-auto cursor-grab active:cursor-grabbing text-gray-300 hover:text-navy-600 flex-shrink-0 touch-none">
+            <GripVertical className="w-4 h-4" />
+          </span>
           <div className={`p-1.5 rounded-lg flex-shrink-0 ${colors[color]}`}><Icon className="w-4 h-4" /></div>
           <h2 className="font-bold text-navy-700 text-sm truncate">{title}</h2>
           {count !== undefined && <span className="text-xs text-gray-400 font-medium flex-shrink-0">({count})</span>}
