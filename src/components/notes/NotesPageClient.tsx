@@ -461,7 +461,7 @@ function AddTaskForm({ statuses, people, teams, currentTeamId, defaultRecurrence
         <div className="flex items-end gap-3">
           <textarea value={aiInput} onChange={e => setAiInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addViaAI() } }}
-            rows={2} placeholder={`e.g. "chase Sonali about 306 every Monday — high priority"`}
+            rows={2} placeholder={`e.g. "send checkout reminder email on Monday — high priority"`}
             className="flex-1 resize-none text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-teal-500" />
           <button onClick={addViaAI} disabled={!aiInput.trim() || adding}
             className="h-10 px-4 flex-shrink-0 rounded-xl bg-teal-600 text-white text-sm font-medium flex items-center gap-2 hover:bg-teal-700 disabled:opacity-40">

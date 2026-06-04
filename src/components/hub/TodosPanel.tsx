@@ -64,7 +64,7 @@ export function TodosPanel() {
           <textarea
             value={input} onChange={e => setInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); add() } }}
-            rows={1} placeholder="e.g. chase Sonali about 306 next Tuesday — high priority"
+            rows={1} placeholder="e.g. send checkout reminder email on Friday — high priority"
             className="flex-1 resize-none max-h-24 text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-teal-500"
           />
           <button onClick={add} disabled={!input.trim() || adding} className="h-10 px-3 flex-shrink-0 rounded-xl bg-teal-600 text-white flex items-center gap-1.5 text-sm font-medium hover:bg-teal-700 disabled:opacity-40">
