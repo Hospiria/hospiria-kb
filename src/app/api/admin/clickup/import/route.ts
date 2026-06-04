@@ -98,14 +98,22 @@ export async function POST(request: Request) {
       page.categoryId ?? (await resolveCategory(pageTeamId, page.parentName ?? null))
 
     try {
-      const res = await fetch(
+      // Try markdown first; if ClickUp returns 500 fall back to plain text
+      let res = await fetch(
         `https://api.clickup.com/api/v3/workspaces/${workspaceId}/docs/${docId}/pages/${page.id}?content_format=text/md`,
         { headers: { Authorization: token } }
       )
+      if (!res.ok) {
+        // Retry without format — ClickUp sometimes 500s on certain page types in md mode
+        res = await fetch(
+          `https://api.clickup.com/api/v3/workspaces/${workspaceId}/docs/${docId}/pages/${page.id}`,
+          { headers: { Authorization: token } }
+        )
+      }
       if (!res.ok) { results.push({ name: page.name, status: 'error', error: `HTTP ${res.status}` }); continue }
 
       const data = await res.json()
-      const rawContent = data.content ?? ''
+      const rawContent = data.content ?? data.text_content ?? ''
       if (!rawContent.trim()) { results.push({ name: page.name, status: 'skipped' }); continue }
 
       const processedMarkdown = await processImages(rawContent, token, adminClient)
