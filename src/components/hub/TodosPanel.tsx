@@ -35,6 +35,17 @@ export function TodosPanel({ space, teams }: { space: string; teams: Team[] }) {
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [addMode, setAddMode] = useState<'ai' | 'manual'>('ai')
+
+  // Manual form
+  const [mTitle, setMTitle]       = useState('')
+  const [mPriority, setMPriority] = useState<'low'|'medium'|'high'>('medium')
+  const [mStatus, setMStatus]     = useState('')
+  const [mDueDate, setMDueDate]   = useState('')
+  const [mAssignee, setMAssignee] = useState('')
+  const [mRecur, setMRecur]       = useState<'none'|'daily'|'weekly'>('none')
+  const [mDow, setMDow]           = useState(1)          // day-of-week for weekly
+  const [mWeekdays, setMWeekdays] = useState(false)      // weekdays-only for daily
 
   // View + filters
   const [view, setView]           = useState<TodoView>('all')
@@ -79,6 +90,35 @@ export function TodosPanel({ space, teams }: { space: string; teams: Team[] }) {
         }),
       })
       if (c.ok) { setInput(''); load() } else setError((await c.json()).error ?? 'Could not save.')
+    } catch { setError('Network error.') } finally { setAdding(false) }
+  }
+
+  async function addManual() {
+    if (!mTitle.trim() || adding) return
+    setAdding(true); setError('')
+    try {
+      const teamId = space === 'personal' ? null : space
+      const selectedStatus = statuses.find(s => s.name === (mStatus || defaultStatus?.name))
+      const c = await fetch('/api/todos', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: mTitle.trim(),
+          priority: mPriority,
+          dueDate: mDueDate || null,
+          assigneeId: mAssignee || null,
+          recurrence: mRecur,
+          recurrenceDayOfWeek: mRecur === 'weekly' ? mDow : null,
+          recurrenceWeekdaysOnly: mRecur === 'daily' ? mWeekdays : false,
+          statusName: mStatus || defaultStatus?.name,
+          isDone: selectedStatus?.is_done ?? false,
+          teamId,
+        }),
+      })
+      if (c.ok) {
+        setMTitle(''); setMPriority('medium'); setMStatus(''); setMDueDate('')
+        setMAssignee(''); setMRecur('none'); setMDow(1); setMWeekdays(false)
+        load()
+      } else setError((await c.json()).error ?? 'Could not save.')
     } catch { setError('Network error.') } finally { setAdding(false) }
   }
 
@@ -151,19 +191,99 @@ export function TodosPanel({ space, teams }: { space: string; teams: Team[] }) {
         </div>
       </div>
 
-      {/* Add bar */}
-      <div className="px-3 py-2 border-b border-gray-100 flex-shrink-0">
-        <div className="flex items-end gap-2">
-          <textarea value={input} onChange={e => setInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); add() } }}
-            rows={1} placeholder="e.g. send checkout reminder on Friday — high"
-            className="flex-1 resize-none max-h-20 text-xs border border-gray-200 rounded-xl px-2.5 py-2 focus:outline-none focus:ring-1 focus:ring-teal-500" />
-          <button onClick={add} disabled={!input.trim() || adding}
-            className="h-8 px-3 flex-shrink-0 rounded-xl bg-teal-600 text-white flex items-center gap-1 text-xs font-medium hover:bg-teal-700 disabled:opacity-40">
-            {adding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />} Add
-          </button>
+      {/* Add bar — AI or Manual */}
+      <div className="px-3 pt-2 pb-2 border-b border-gray-100 flex-shrink-0 space-y-2">
+        {/* Mode toggle */}
+        <div className="flex items-center gap-1.5">
+          <div className="inline-flex rounded-lg border border-gray-200 p-0.5">
+            <button onClick={() => setAddMode('ai')}
+              className={`flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-medium transition-colors ${addMode === 'ai' ? 'bg-teal-600 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
+              <Sparkles className="w-3 h-3" /> AI
+            </button>
+            <button onClick={() => setAddMode('manual')}
+              className={`flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-medium transition-colors ${addMode === 'manual' ? 'bg-teal-600 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
+              + Manual
+            </button>
+          </div>
+          <span className="text-[10px] text-gray-400">
+            {addMode === 'ai' ? 'AI fills date, priority, assignee' : 'Set every field yourself'}
+          </span>
         </div>
-        {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+
+        {addMode === 'ai' ? (
+          <div className="flex items-end gap-2">
+            <textarea value={input} onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); add() } }}
+              rows={1} placeholder="e.g. send checkout reminder on Friday — high"
+              className="flex-1 resize-none max-h-20 text-xs border border-gray-200 rounded-xl px-2.5 py-2 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+            <button onClick={add} disabled={!input.trim() || adding}
+              className="h-8 px-3 flex-shrink-0 rounded-xl bg-teal-600 text-white flex items-center gap-1 text-xs font-medium hover:bg-teal-700 disabled:opacity-40">
+              {adding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />} Add
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <input value={mTitle} onChange={e => setMTitle(e.target.value)}
+              placeholder="Task title *"
+              className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-2 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+            <div className="grid grid-cols-3 gap-1.5">
+              <label className="text-[10px] text-gray-500">Status
+                <select value={mStatus} onChange={e => setMStatus(e.target.value)}
+                  className="w-full mt-0.5 text-[11px] border border-gray-200 rounded px-1.5 py-1 bg-white">
+                  {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                </select>
+              </label>
+              <label className="text-[10px] text-gray-500">Priority
+                <select value={mPriority} onChange={e => setMPriority(e.target.value as 'low'|'medium'|'high')}
+                  className="w-full mt-0.5 text-[11px] border border-gray-200 rounded px-1.5 py-1 bg-white">
+                  <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
+                </select>
+              </label>
+              <label className="text-[10px] text-gray-500">Recur
+                <select value={mRecur} onChange={e => setMRecur(e.target.value as 'none'|'daily'|'weekly')}
+                  className="w-full mt-0.5 text-[11px] border border-gray-200 rounded px-1.5 py-1 bg-white">
+                  <option value="none">Once</option><option value="daily">Daily</option><option value="weekly">Weekly</option>
+                </select>
+              </label>
+            </div>
+            {/* Day picker for weekly */}
+            {mRecur === 'weekly' && (
+              <div className="flex gap-1">
+                {[['M',1],['T',2],['W',3],['Th',4],['F',5],['Sa',6],['Su',0]].map(([l,v]) => (
+                  <button key={v} type="button" onClick={() => setMDow(v as number)}
+                    className={`flex-1 py-0.5 rounded text-[10px] font-medium border ${mDow === v ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-gray-500 border-gray-200'}`}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+            )}
+            {/* Weekdays only for daily */}
+            {mRecur === 'daily' && (
+              <label className="flex items-center gap-1.5 text-[10px] text-gray-500 cursor-pointer">
+                <input type="checkbox" checked={mWeekdays} onChange={e => setMWeekdays(e.target.checked)} className="rounded text-teal-500" />
+                Weekdays only (Mon–Fri)
+              </label>
+            )}
+            <div className="grid grid-cols-2 gap-1.5">
+              <label className="text-[10px] text-gray-500">Due date
+                <input type="date" value={mDueDate} onChange={e => setMDueDate(e.target.value)}
+                  className="w-full mt-0.5 text-[11px] border border-gray-200 rounded px-1.5 py-1 bg-white" />
+              </label>
+              <label className="text-[10px] text-gray-500">Assign to
+                <select value={mAssignee} onChange={e => setMAssignee(e.target.value)}
+                  className="w-full mt-0.5 text-[11px] border border-gray-200 rounded px-1.5 py-1 bg-white">
+                  <option value="">Nobody</option>
+                  {people.map(p => <option key={p.id} value={p.id}>{p.full_name ?? 'User'}</option>)}
+                </select>
+              </label>
+            </div>
+            <button onClick={addManual} disabled={!mTitle.trim() || adding}
+              className="w-full py-1.5 rounded-lg bg-teal-600 text-white text-xs font-semibold hover:bg-teal-700 disabled:opacity-40 flex items-center justify-center gap-1.5">
+              {adding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Add task
+            </button>
+          </div>
+        )}
+        {error && <p className="text-xs text-red-500">{error}</p>}
       </div>
 
       {/* Todo list */}
