@@ -106,44 +106,57 @@ export async function sendSopPublishedNotification({
   })
 }
 
-/** Sent to a team channel when a team to-do is created or assigned. */
+/** Sent to a team channel when a team to-do is created. */
 export async function sendTodoNotification({
   todoTitle,
+  todoDetail,
   assigneeName,
+  creatorName,
   priority,
   dueDate,
+  recurrence,
   teamWebhookUrl,
 }: {
   todoTitle: string
+  todoDetail?: string | null
   assigneeName?: string | null
+  creatorName?: string | null
   priority?: string
   dueDate?: string | null
+  recurrence?: string | null
   teamWebhookUrl?: string | null
 }) {
   const webhookUrl = resolveWebhook(teamWebhookUrl)
   if (!webhookUrl) return
 
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
   const facts = []
-  if (assigneeName) facts.push({ title: 'Assigned to', value: assigneeName })
-  if (priority) facts.push({ title: 'Priority', value: priority.charAt(0).toUpperCase() + priority.slice(1) })
-  if (dueDate) facts.push({ title: 'Due', value: dueDate })
+  if (assigneeName) facts.push({ title: '👤 Assigned to', value: assigneeName })
+  if (creatorName)  facts.push({ title: 'Created by',    value: creatorName })
+  if (priority)     facts.push({ title: '🔴 Priority',   value: cap(priority) })
+  if (dueDate)      facts.push({ title: '📅 Due',        value: dueDate })
+  if (recurrence && recurrence !== 'none') facts.push({ title: '🔁 Recurrence', value: cap(recurrence) })
+
+  const heading = assigneeName
+    ? `✅ New task assigned to ${assigneeName}`
+    : '✅ New team task'
+
+  const bodyItems: object[] = [
+    { type: 'TextBlock', text: todoTitle, wrap: true, weight: 'Bolder', size: 'Medium' },
+  ]
+  if (todoDetail) bodyItems.push({ type: 'TextBlock', text: todoDetail, wrap: true, color: 'Default', isSubtle: true })
+  if (facts.length) bodyItems.push({ type: 'FactSet', facts })
 
   await postToTeams(webhookUrl, {
     body: [
       {
         type: 'Container',
-        style: 'emphasis',
-        items: [{ type: 'TextBlock', text: '✅ New Task', weight: 'Bolder', size: 'Medium' }],
+        style: 'good',
+        items: [{ type: 'TextBlock', text: heading, weight: 'Bolder', size: 'Medium', wrap: true }],
       },
-      {
-        type: 'Container',
-        items: [
-          { type: 'TextBlock', text: todoTitle, wrap: true, weight: 'Bolder' },
-          ...(facts.length ? [{ type: 'FactSet', facts }] : []),
-        ],
-      },
+      { type: 'Container', items: bodyItems },
     ],
-    actions: [{ type: 'Action.OpenUrl', title: 'View tasks →', url: `${APP_URL}/notes` }],
+    actions: [{ type: 'Action.OpenUrl', title: 'Open To-dos →', url: `${APP_URL}/notes` }],
   })
 }
 

@@ -1,6 +1,7 @@
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { requireFeature } from '@/lib/permissions-guard'
 import { NextResponse } from 'next/server'
+import { sendTodoNotification } from '@/lib/notifications/teams'
 
 interface TodoRow {
   id: string; owner_id: string; assignee_id: string | null; team_id: string | null
@@ -96,6 +97,7 @@ export async function POST(request: Request) {
   const { data, error } = await supabase.from('todos').insert(insert).select('*').single()
   if (error || !data) return NextResponse.json({ error: error?.message ?? 'Create failed' }, { status: 500 })
 
+  // In-app notification for the assignee
   if (insert.assignee_id && insert.assignee_id !== auth.userId) {
     await supabase.from('notifications').insert({
       user_id: insert.assignee_id,
@@ -104,5 +106,35 @@ export async function POST(request: Request) {
       link: '/notes',
     })
   }
+
+  // Teams channel notification for team tasks
+  if (insert.team_id) {
+    // Look up the team's webhook URL and resolve names (best-effort, fire-and-forget)
+    const db = createServiceClient()
+    const [{ data: team }, { data: creator }, { data: assignee }] = await Promise.all([
+      db.from('teams').select('name, teams_webhook_url').eq('id', insert.team_id as string).single(),
+      db.from('profiles').select('full_name').eq('id', auth.userId).single(),
+      insert.assignee_id
+        ? db.from('profiles').select('full_name').eq('id', insert.assignee_id as string).single()
+        : Promise.resolve({ data: null }),
+    ])
+
+    const webhookUrl = (team as { teams_webhook_url?: string | null } | null)?.teams_webhook_url
+      ?? process.env.TEAMS_WEBHOOK_URL ?? null
+
+    if (webhookUrl) {
+      sendTodoNotification({
+        todoTitle: title,
+        todoDetail: insert.detail as string | null,
+        assigneeName: (assignee as { full_name?: string | null } | null)?.full_name ?? null,
+        creatorName: (creator as { full_name?: string | null } | null)?.full_name ?? null,
+        priority,
+        dueDate: insert.due_date as string | null,
+        recurrence,
+        teamWebhookUrl: webhookUrl,
+      }).catch(err => console.error('Teams todo notification error:', err))
+    }
+  }
+
   return NextResponse.json({ todo: data })
 }
