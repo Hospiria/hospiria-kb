@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef, useMemo } from 'react'
+import { useState, useCallback, useRef, useMemo, createContext, useContext } from 'react'
 import Link from 'next/link'
 import {
   SlidersHorizontal, CheckCircle2, Clock, AlertTriangle,
@@ -38,6 +38,11 @@ const MAX_HEIGHT = 820
 const snapSpan = (n: number) =>
   ALLOWED_SPANS.reduce((best, s) => (Math.abs(s - n) < Math.abs(best - n) ? s : best), ALLOWED_SPANS[0])
 const clampHeight = (n: number) => Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, n))
+
+// Lets each card's header render a drag grip (ClickUp-style) without threading
+// props through every card component. The grid supplies the draggable handlers.
+type DragProps = { draggable?: boolean; onDragStart?: (e: React.DragEvent) => void; onDragEnd?: () => void }
+const CardDragContext = createContext<{ editing: boolean; dragProps?: DragProps }>({ editing: false })
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -246,24 +251,20 @@ export function DashboardGrid({ profile, role, hiddenCards: initialHidden, cardL
             onDragEnter={editing ? handleDragEnter(key) : undefined}
             onDragOver={editing ? (e) => e.preventDefault() : undefined}
           >
-            {/* Card content (non-interactive while editing so clicks don't navigate) */}
+            {/* Card content (non-interactive while editing so clicks don't navigate;
+                the header drag grip re-enables its own pointer events) */}
             <div className={editing ? 'pointer-events-none select-none' : ''}>
-              {renderCard(key)}
+              <CardDragContext.Provider value={{
+                editing,
+                dragProps: editing ? { draggable: true, onDragStart: handleDragStart(key), onDragEnd: handleDragEnd } : undefined,
+              }}>
+                {renderCard(key)}
+              </CardDragContext.Provider>
             </div>
 
             {/* Edit handles */}
             {editing && (
               <>
-                {/* Drag-to-reorder grip */}
-                <div
-                  draggable
-                  onDragStart={handleDragStart(key)}
-                  onDragEnd={handleDragEnd}
-                  title="Drag to move"
-                  className="absolute top-2 left-1/2 -translate-x-1/2 z-20 px-2 py-0.5 rounded-md bg-navy-700/90 text-white cursor-grab active:cursor-grabbing flex items-center gap-1 shadow">
-                  <GripVertical className="w-3.5 h-3.5" />
-                  <span className="text-[10px] font-semibold">move</span>
-                </div>
                 {/* Hide */}
                 <button
                   onClick={() => toggleCard(key)}
@@ -332,10 +333,19 @@ function CardShell({ title, icon: Icon, count, href, color = 'teal', headerRight
     teal:  'bg-teal-50 text-teal-600', amber: 'bg-amber-50 text-amber-600',
     red:   'bg-red-50 text-red-600',   navy:  'bg-navy-50 text-navy-600',
   }
+  const { editing, dragProps } = useContext(CardDragContext)
   return (
     <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm h-full flex flex-col">
       <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          {editing && (
+            <span
+              {...dragProps}
+              title="Drag to move"
+              className="pointer-events-auto cursor-grab active:cursor-grabbing text-gray-300 hover:text-navy-600 flex-shrink-0 -ml-1.5">
+              <GripVertical className="w-4 h-4" />
+            </span>
+          )}
           <div className={`p-1.5 rounded-lg flex-shrink-0 ${colors[color]}`}><Icon className="w-4 h-4" /></div>
           <h2 className="font-bold text-navy-700 text-sm truncate">{title}</h2>
           {count !== undefined && <span className="text-xs text-gray-400 font-medium flex-shrink-0">({count})</span>}
