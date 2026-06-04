@@ -48,10 +48,12 @@ export function TodosPanel({ space, teams }: { space: string; teams: Team[] }) {
   const [mWeekdays, setMWeekdays] = useState(false)      // weekdays-only for daily
 
   // View + filters
-  const [view, setView]           = useState<TodoView>('all')
-  const [mineOnly, setMineOnly]   = useState(false)
-  const [hideDone, setHideDone]   = useState(false)
-  const [search, setSearch]       = useState('')
+  const [view, setView]             = useState<TodoView>('all')
+  const [mineOnly, setMineOnly]     = useState(false)
+  const [hideDone, setHideDone]     = useState(false)
+  const [statusFilter, setStatusFilter]     = useState('')
+  const [priorityFilter, setPriorityFilter] = useState('')
+  const [search, setSearch]         = useState('')
 
   const qs = space === 'personal' ? '?space=personal' : `?teamId=${space}`
 
@@ -60,7 +62,7 @@ export function TodosPanel({ space, teams }: { space: string; teams: Team[] }) {
     try { const r = await fetch(`/api/todos${qs}`); if (r.ok) setTodos((await r.json()).todos ?? []) } finally { setLoading(false) }
   }, [qs])
 
-  useEffect(() => { load(); setView('all'); setMineOnly(false); setHideDone(false); setSearch('') }, [load])
+  useEffect(() => { load(); setView('all'); setMineOnly(false); setHideDone(false); setStatusFilter(''); setPriorityFilter(''); setSearch('') }, [load])
   useEffect(() => {
     fetch('/api/directory').then(r => r.ok ? r.json() : null).then(d => { if (d) setPeople(d.people ?? []) })
     fetch('/api/todo-statuses').then(r => r.ok ? r.json() : null).then(d => { if (d) setStatuses(d.statuses ?? []) })
@@ -142,6 +144,8 @@ export function TodosPanel({ space, teams }: { space: string; teams: Team[] }) {
     if (sq && !t.title.toLowerCase().includes(sq)) return false
     if (mineOnly && !t.mine && !t.assignedToMe) return false
     if (hideDone && t.is_done) return false
+    if (statusFilter && t.status !== statusFilter) return false
+    if (priorityFilter && t.priority !== priorityFilter) return false
     return true
   })
 
@@ -175,16 +179,40 @@ export function TodosPanel({ space, teams }: { space: string; teams: Team[] }) {
           ))}
         </div>
 
-        {/* Filter toggles + count */}
-        <div className="flex items-center gap-1.5">
+        {/* Filter toggles + dropdowns */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {/* Status dropdown */}
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+            className={`text-[11px] border rounded-lg px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-teal-500 ${statusFilter ? 'border-teal-300 bg-teal-50 text-teal-800' : 'border-gray-200 text-gray-500 bg-white'}`}>
+            <option value="">Any status</option>
+            {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+          </select>
+
+          {/* Priority dropdown */}
+          <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)}
+            className={`text-[11px] border rounded-lg px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-teal-500 ${priorityFilter ? 'border-teal-300 bg-teal-50 text-teal-800' : 'border-gray-200 text-gray-500 bg-white'}`}>
+            <option value="">Any priority</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+
+          {/* Toggle buttons */}
           <button onClick={() => setMineOnly(v => !v)}
-            className={`px-2.5 py-0.5 rounded-full text-[11px] font-medium border transition-colors ${mineOnly ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'}`}>
+            className={`px-2 py-0.5 rounded-full text-[11px] font-medium border transition-colors ${mineOnly ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'}`}>
             Mine
           </button>
           <button onClick={() => setHideDone(v => !v)}
-            className={`px-2.5 py-0.5 rounded-full text-[11px] font-medium border transition-colors ${hideDone ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'}`}>
+            className={`px-2 py-0.5 rounded-full text-[11px] font-medium border transition-colors ${hideDone ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'}`}>
             Hide done
           </button>
+
+          {/* Clear active filters */}
+          {(statusFilter || priorityFilter) && (
+            <button onClick={() => { setStatusFilter(''); setPriorityFilter('') }}
+              className="text-[11px] text-gray-400 hover:text-gray-600">✕ Clear</button>
+          )}
+
           <span className="text-[11px] text-gray-400 ml-auto">
             {activeCount} open{doneCount > 0 && `, ${doneCount} done`}
           </span>
