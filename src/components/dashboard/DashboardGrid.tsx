@@ -220,7 +220,7 @@ export function DashboardGrid({ profile, role, hiddenCards: initialHidden, cardL
         {visibleOrdered.map(key => (
           <div
             key={key}
-            style={{ gridColumn: `span ${spans[key] ?? 6}`, ['--card-h' as string]: `${heights[key] ?? DEFAULT_HEIGHT}px` } as React.CSSProperties}
+            style={{ gridColumn: `span ${spans[key] ?? 6}`, height: `${heights[key] ?? DEFAULT_HEIGHT}px` }}
             className={`relative ${editing ? 'ring-2 ring-navy-100 rounded-2xl' : ''}`}
             onDragEnter={handleDragEnter(key)}
             onDragOver={(e) => e.preventDefault()}
@@ -228,7 +228,7 @@ export function DashboardGrid({ profile, role, hiddenCards: initialHidden, cardL
             {/* Card content. Drag-to-reorder is always available via the header
                 grip. Only in edit mode do we make the body inert so clicks land
                 on the size/hide toolbar instead of navigating. */}
-            <div className={editing ? 'pointer-events-none select-none' : ''}>
+            <div className={`h-full ${editing ? 'pointer-events-none select-none' : ''}`}>
               <CardDragContext.Provider value={{
                 dragProps: { draggable: true, onDragStart: handleDragStart(key), onDragEnd: handleDragEnd },
               }}>
@@ -306,7 +306,7 @@ function CardShell({ title, icon: Icon, count, href, color = 'teal', headerRight
         </div>
         {headerRight ?? (href && <Link href={href} className="text-xs text-teal-600 hover:underline font-medium flex-shrink-0">View all</Link>)}
       </div>
-      <div className="flex-1">{children}</div>
+      <div className="flex-1 min-h-0">{children}</div>
     </div>
   )
 }
@@ -361,7 +361,7 @@ function TasksCard({ tasks }: { tasks: Record<string, unknown>[] }) {
           No open tasks. <Link href="/notes" className="text-teal-600 hover:underline pointer-events-auto">Go to Notes &amp; To-dos →</Link>
         </p>
       ) : (
-        <div className="max-h-[var(--card-h,420px)] overflow-y-auto">
+        <div className="h-full overflow-y-auto">
           {/* All view: grouped one-offs by urgency + recurring sections */}
           {view === 'all' && (
             <>
@@ -419,7 +419,7 @@ function SopsApproveCard({ sops }: { sops: Record<string, unknown>[] }) {
   return (
     <CardShell title="SOPs to Approve" icon={Clock} count={rows.length} color="amber">
       {rows.length === 0 ? <Empty msg="✅ Nothing waiting for approval." /> : (
-        <div className="divide-y divide-gray-50 max-h-[var(--card-h,420px)] overflow-y-auto">
+        <div className="divide-y divide-gray-50 h-full overflow-y-auto">
           {rows.map(s => (
             <Link key={s.id} href={`/sops/${s.id}/approve`} className="flex items-center justify-between px-5 py-3 hover:bg-amber-50 group pointer-events-auto">
               <div className="min-w-0 flex-1 mr-3">
@@ -441,7 +441,7 @@ function QuizTeamCard({ stats }: { stats: TeamQuizStat[] }) {
   return (
     <CardShell title="Quiz Performance" icon={TrendingUp} color="teal">
       {stats.length === 0 ? <Empty msg="No quiz data yet." /> : (
-        <div className="px-5 py-3 space-y-3 max-h-[var(--card-h,420px)] overflow-y-auto">
+        <div className="px-5 py-3 space-y-3 h-full overflow-y-auto">
           {stats.map(s => {
             const pct = s.total > 0 ? Math.round((s.passed / s.total) * 100) : 0
             return (
@@ -469,7 +469,7 @@ function ChaseCard({ members }: { members: MemberChase[] }) {
   return (
     <CardShell title="Chase Up" icon={AlertTriangle} count={members.length || undefined} color="amber">
       {members.length === 0 ? <Empty msg="✅ No overdue quizzes for your team!" /> : (
-        <div className="divide-y divide-gray-50 max-h-[var(--card-h,420px)] overflow-y-auto">
+        <div className="divide-y divide-gray-50 h-full overflow-y-auto">
           {members.map(m => (
             <div key={m.id} className="flex items-start gap-3 px-5 py-3">
               <div className="w-7 h-7 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
@@ -497,7 +497,7 @@ function MyCoursesCard({ courses }: { courses: Record<string, unknown>[] }) {
   return (
     <CardShell title="My Courses" icon={GraduationCap} count={rows.length || undefined} href="/quizzes" color="navy">
       {rows.length === 0 ? <Empty msg="✅ No outstanding courses." /> : (
-        <div className="divide-y divide-gray-50 max-h-[var(--card-h,420px)] overflow-y-auto">
+        <div className="divide-y divide-gray-50 h-full overflow-y-auto">
           {rows.map(c => (
             <Link key={c.id} href="/quizzes" className="flex items-center justify-between px-5 py-3 hover:bg-slate-50 group pointer-events-auto">
               <div className="min-w-0 flex-1 mr-3">
@@ -526,7 +526,7 @@ function MyNotesCard({ notes }: { notes: Record<string, unknown>[] }) {
       {rows.length === 0 ? (
         <p className="text-sm text-gray-400 italic px-5 py-6">No notes yet. <Link href="/notes" className="text-teal-600 hover:underline pointer-events-auto">Create one →</Link></p>
       ) : (
-        <div className="divide-y divide-gray-50 max-h-[var(--card-h,420px)] overflow-y-auto">
+        <div className="divide-y divide-gray-50 h-full overflow-y-auto">
           {rows.map(n => (
             <Link key={n.id} href="/notes" className="flex items-start gap-2.5 px-5 py-3 hover:bg-teal-50 group pointer-events-auto">
               {n.pinned && <Pin className="w-3 h-3 text-amber-500 mt-0.5 flex-shrink-0" />}
@@ -551,7 +551,7 @@ function TeamSopsCard({ sops, teamName }: { sops: Record<string, unknown>[]; tea
   return (
     <CardShell title={`${teamName ?? 'Team'} SOPs`} icon={FileText} href="/sops" color="navy">
       {rows.length === 0 ? <Empty msg="No SOPs yet." /> : (
-        <div className="divide-y divide-gray-50 max-h-[var(--card-h,420px)] overflow-y-auto">
+        <div className="divide-y divide-gray-50 h-full overflow-y-auto">
           {rows.map(s => (
             <Link key={s.id} href={`/sops/${s.id}`} className="flex items-center justify-between px-5 py-3 hover:bg-slate-50 group pointer-events-auto">
               <div className="min-w-0 flex-1 mr-3">
@@ -577,7 +577,7 @@ function MySopsCard({ sops }: { sops: Record<string, unknown>[] }) {
   return (
     <CardShell title="My SOPs" icon={FileText} href="/sops" color="navy">
       {rows.length === 0 ? <Empty msg="You haven't written any SOPs yet." /> : (
-        <div className="divide-y divide-gray-50 max-h-[var(--card-h,420px)] overflow-y-auto">
+        <div className="divide-y divide-gray-50 h-full overflow-y-auto">
           {rows.map(s => (
             <Link key={s.id} href={`/sops/${s.id}`} className="flex items-center justify-between px-5 py-3 hover:bg-slate-50 group pointer-events-auto">
               <div className="min-w-0 flex-1 mr-3">
