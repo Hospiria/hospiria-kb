@@ -6,9 +6,10 @@ import { Sparkles, Loader2, Check, Trash2, ChevronDown, Calendar, User, Users } 
 interface Todo {
   id: string; owner_id: string; assignee_id: string | null; team_id: string | null
   title: string; detail: string | null; due_date: string | null
-  priority: 'low' | 'medium' | 'high'; status: 'open' | 'done'
+  priority: 'low' | 'medium' | 'high'; status: string; is_done: boolean
   mine: boolean; assignedToMe: boolean; ownerName: string | null; assigneeName: string | null; teamName: string | null
 }
+interface TodoStatus { id: string; name: string; color: string; is_done: boolean; is_default: boolean }
 interface Person { id: string; full_name: string | null }
 interface Team { id: string; name: string }
 
@@ -16,6 +17,7 @@ const PRIORITY_DOT: Record<string, string> = { high: 'bg-red-500', medium: 'bg-a
 
 export function TodosPanel() {
   const [todos, setTodos] = useState<Todo[]>([])
+  const [statuses, setStatuses] = useState<TodoStatus[]>([])
   const [loading, setLoading] = useState(true)
   const [people, setPeople] = useState<Person[]>([])
   const [teams, setTeams] = useState<Team[]>([])
@@ -31,9 +33,12 @@ export function TodosPanel() {
   useEffect(() => {
     load()
     fetch('/api/directory').then(r => r.ok ? r.json() : null).then(d => { if (d) { setPeople(d.people ?? []); setTeams(d.teams ?? []) } })
+    fetch('/api/todo-statuses').then(r => r.ok ? r.json() : null).then(d => { if (d) setStatuses(d.statuses ?? []) })
   }, [load])
 
-  // AI capture: natural language → structured draft → create.
+  const defaultStatus = statuses.find(s => s.is_default) ?? statuses[0] ?? null
+
+  // AI capture — passes full draft including recurrence and statusName
   async function add() {
     const text = input.trim(); if (!text || adding) return
     setAdding(true); setError('')
@@ -42,7 +47,17 @@ export function TodosPanel() {
       const d = await r.json()
       if (!r.ok) { setError(d.error ?? 'Could not add that.'); return }
       const draft = d.draft
-      const c = await fetch('/api/todos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: draft.title, detail: draft.detail, dueDate: draft.dueDate, priority: draft.priority, assigneeId: draft.assigneeId }) })
+      const c = await fetch('/api/todos', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: draft.title, detail: draft.detail, dueDate: draft.dueDate,
+          priority: draft.priority, assigneeId: draft.assigneeId,
+          recurrence: draft.recurrence ?? 'none',
+          recurrenceDayOfWeek: draft.recurrenceDayOfWeek ?? null,
+          recurrenceWeekdaysOnly: draft.recurrenceWeekdaysOnly ?? false,
+          statusName: draft.statusName ?? defaultStatus?.name,
+        }),
+      })
       if (c.ok) { setInput(''); load() } else setError((await c.json()).error ?? 'Could not save.')
     } catch { setError('Network error.') } finally { setAdding(false) }
   }
@@ -50,11 +65,20 @@ export function TodosPanel() {
   async function patch(id: string, body: Record<string, unknown>) {
     await fetch(`/api/todos/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); load()
   }
-  async function toggle(t: Todo) { await patch(t.id, { status: t.status === 'done' ? 'open' : 'done' }) }
+
+  // Toggle done — sends BOTH status string AND isDone boolean so the DB column is updated
+  async function toggle(t: Todo) {
+    const nowDone = !t.is_done
+    const newStatus = nowDone
+      ? (statuses.find(s => s.is_done)?.name ?? 'Completed')
+      : (statuses.find(s => !s.is_done)?.name ?? defaultStatus?.name ?? 'To Do')
+    await patch(t.id, { status: newStatus, isDone: nowDone })
+  }
+
   async function del(id: string) { await fetch(`/api/todos/${id}`, { method: 'DELETE' }); load() }
 
-  const open = todos.filter(t => t.status === 'open')
-  const done = todos.filter(t => t.status === 'done')
+  const open = todos.filter(t => !t.is_done)
+  const done = todos.filter(t => t.is_done)
 
   return (
     <div className="flex flex-col h-full">
@@ -96,15 +120,15 @@ function TodoCard({ t, people, teams, expanded, onExpand, onToggle, onPatch, onD
   t: Todo; people: Person[]; teams: Team[]; expanded: boolean
   onExpand: () => void; onToggle: () => void; onPatch: (b: Record<string, unknown>) => void; onDelete: () => void
 }) {
-  const done = t.status === 'done'
+  const isDone = t.is_done
   return (
     <div className="bg-white border border-gray-200 rounded-xl">
       <div className="flex items-start gap-2.5 p-3">
-        <button onClick={onToggle} className={`mt-0.5 w-4 h-4 rounded-full border flex-shrink-0 flex items-center justify-center ${done ? 'bg-teal-500 border-teal-500' : 'border-gray-300 hover:border-teal-400'}`}>
-          {done && <Check className="w-3 h-3 text-white" />}
+        <button onClick={onToggle} className={`mt-0.5 w-4 h-4 rounded-full border flex-shrink-0 flex items-center justify-center ${isDone ? 'bg-teal-500 border-teal-500' : 'border-gray-300 hover:border-teal-400'}`}>
+          {isDone && <Check className="w-3 h-3 text-white" />}
         </button>
         <div className="flex-1 min-w-0">
-          <p className={`text-sm ${done ? 'text-gray-400 line-through' : 'text-navy-700'}`}>{t.title}</p>
+          <p className={`text-sm ${isDone ? 'text-gray-400 line-through' : 'text-navy-700'}`}>{t.title}</p>
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-1 text-[11px] text-gray-400">
             <span className="flex items-center gap-1"><span className={`w-2 h-2 rounded-full ${PRIORITY_DOT[t.priority]}`} />{t.priority}</span>
             {t.due_date && <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{t.due_date}</span>}
