@@ -24,6 +24,7 @@ export function TeamManagement({ teams, categories, approvers }: Props) {
   const [addingTeam, setAddingTeam] = useState(false)
   const [webhookUrl, setWebhookUrl] = useState(selectedTeam?.teams_webhook_url ?? '')
   const [savingWebhook, setSavingWebhook] = useState(false)
+  const [testingWebhook, setTestingWebhook] = useState(false)
   const [webhookMsg, setWebhookMsg] = useState('')
   const router = useRouter()
   const supabase = createClient()
@@ -47,6 +48,18 @@ export function TeamManagement({ teams, categories, approvers }: Props) {
 
   const teamCats = categories.filter(c => c.team_id === selectedTeam?.id)
   const teamApprovers = approvers.filter(a => a.primary_team_id === selectedTeam?.id)
+
+  async function testWebhook() {
+    if (!selectedTeam) return
+    setTestingWebhook(true); setWebhookMsg('')
+    const res = await fetch('/api/admin/test-webhook', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ teamId: selectedTeam.id }),
+    })
+    const d = await res.json()
+    setWebhookMsg(res.ok ? '✅ Test message sent! Check your Teams channel.' : `❌ ${d.error}`)
+    setTestingWebhook(false)
+  }
 
   async function addTeam() {
     if (!newTeamName.trim()) return
@@ -182,12 +195,24 @@ export function TeamManagement({ teams, categories, approvers }: Props) {
                       {savingWebhook ? 'Saving…' : 'Save'}
                     </button>
                   </div>
-                  {webhookUrl && (
-                    <button onClick={() => { setWebhookUrl(''); saveWebhook() }} className="text-[11px] text-red-400 hover:text-red-600">
-                      Remove webhook
-                    </button>
+                  <div className="flex items-center gap-2">
+                    {webhookUrl && (
+                      <button onClick={() => { setWebhookUrl(''); saveWebhook() }} className="text-[11px] text-red-400 hover:text-red-600">
+                        Remove
+                      </button>
+                    )}
+                    {selectedTeam?.teams_webhook_url && (
+                      <button onClick={testWebhook} disabled={testingWebhook}
+                        className="text-[11px] text-blue-600 hover:text-blue-700 font-medium disabled:opacity-50">
+                        {testingWebhook ? 'Sending…' : '🧪 Send test message'}
+                      </button>
+                    )}
+                  </div>
+                  {webhookMsg && (
+                    <p className={`text-[11px] font-medium ${webhookMsg.startsWith('✅') ? 'text-teal-600' : 'text-red-600'}`}>
+                      {webhookMsg}
+                    </p>
                   )}
-                  {webhookMsg && <p className="text-[11px] text-teal-600">{webhookMsg}</p>}
                 </div>
               </div>
               <div className="divide-y divide-gray-50">
