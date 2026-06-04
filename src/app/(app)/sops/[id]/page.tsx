@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic'
 
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { StatusBadge } from '@/components/ui/StatusBadge'
@@ -11,7 +11,8 @@ import { Edit, ChevronLeft, CheckCircle, Clock, Link2, ChevronRight } from 'luci
 import { DeleteSopButton } from '@/components/sops/DeleteSopButton'
 import { getEffectiveSession } from '@/lib/impersonation'
 import { canEditAnySop, canApproveSop, canSeeAllDrafts, canCreateSop } from '@/lib/roles'
-import { createServiceClient } from '@/lib/supabase/server'
+import { getEffectivePermissions } from '@/lib/permissions-server'
+import { Role } from '@/types'
 import { SopNotesPanel } from '@/components/sops/SopNotesPanel'
 
 export default async function SopViewPage({ params }: { params: { id: string } }) {
@@ -62,11 +63,12 @@ export default async function SopViewPage({ params }: { params: { id: string } }
     .filter(r => r.status === 'live' || canSeeDrafts)
     .sort((a, b) => a.title.localeCompare(b.title))
 
-  // People + teams for SOP notes panel
+  // People + teams for SOP notes panel; effective permissions for delete gate
   const db = createServiceClient()
-  const [{ data: sopNotesPeople }, { data: sopNotesTeams }] = await Promise.all([
+  const [{ data: sopNotesPeople }, { data: sopNotesTeams }, perms] = await Promise.all([
     db.from('profiles').select('id, full_name').order('full_name'),
     supabase.from('teams').select('id, name').order('name'),
+    getEffectivePermissions(db, effectiveUserId, profile.role as Role),
   ])
 
   // Can edit: admins/approvers can edit any; team leaders + junior TLs can edit their own
@@ -74,6 +76,9 @@ export default async function SopViewPage({ params }: { params: { id: string } }
   const canEdit = canEditAnySop(profile.role) || (canCreateSop(profile.role) && isOwner)
   const canApprove = canApproveSop(profile.role)
   const showVersions = canSeeAllDrafts(profile.role) || canCreateSop(profile.role)
+  // Delete is available to anyone with sops:edit permission (super_admin always has it;
+  // others are granted it via the Permissions UI)
+  const canDeleteSop = perms['sops']?.edit ?? false
 
   const teams = (sop as { sop_teams?: { team_id: string; teams?: { name: string } }[] }).sop_teams ?? []
 
@@ -127,7 +132,7 @@ export default async function SopViewPage({ params }: { params: { id: string } }
                     Edit
                   </Link>
                 )}
-                {profile.role === 'super_admin' && (
+                {canDeleteSop && (
                   <DeleteSopButton sopId={sop.id} sopTitle={sop.title} />
                 )}
               </div>

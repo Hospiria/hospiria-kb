@@ -48,7 +48,7 @@ export const FEATURES: FeatureDef[] = [
   { key: 'chat', label: 'Chat assistant', group: 'Core', hasView: true, hasEdit: false, viewHint: 'Use the assistant' },
   { key: 'notes', label: 'Notes & to-dos', group: 'Core', hasView: true, hasEdit: true, viewHint: 'Open the notes/to-do hub', editHint: 'Create & edit notes and to-dos' },
   { key: 'sop_notes', label: 'SOP Notes & Annotations', group: 'SOPs', hasView: true, hasEdit: true, viewHint: 'View side notes on SOPs', editHint: 'Add personal or team notes to any SOP' },
-  { key: 'sops', label: 'SOPs / Library', group: 'SOPs', hasView: true, hasEdit: true, viewHint: 'Read SOPs', editHint: 'Create & edit SOPs' },
+  { key: 'sops', label: 'SOPs / Library', group: 'SOPs', hasView: true, hasEdit: true, viewHint: 'Read SOPs', editHint: 'Create, edit & delete SOPs' },
   { key: 'approve_sops', label: 'Approve SOPs', group: 'SOPs', hasView: true, hasEdit: true, viewHint: 'See submissions', editHint: 'Approve / reject' },
   { key: 'quizzes', label: 'Courses & Quizzes', group: 'Learning', hasView: true, hasEdit: true, viewHint: 'Take assigned quizzes', editHint: 'Create & manage quizzes' },
   { key: 'users', label: 'Users', group: 'Admin', hasView: true, hasEdit: true, viewHint: 'See user list', editHint: 'Invite / edit users' },

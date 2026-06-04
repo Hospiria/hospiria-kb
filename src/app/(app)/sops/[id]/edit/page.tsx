@@ -10,6 +10,7 @@ import { ChevronLeft } from 'lucide-react'
 
 export default async function EditSopPage({ params }: { params: { id: string } }) {
   await requirePage('sops', 'edit')
+  // Anyone who passed the above guard has sops:edit → they can delete too
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -62,9 +63,8 @@ export default async function EditSopPage({ params }: { params: { id: string } }
           <ChevronLeft className="w-4 h-4" />
           Back to SOP
         </Link>
-        {profile.role === 'super_admin' && (
-          <DeleteSopButton sopId={params.id} sopTitle={sop.title} />
-        )}
+        {/* Anyone who can reach this edit page has sops:edit → show delete */}
+        <DeleteSopButton sopId={params.id} sopTitle={sop.title} />
       </div>
       <h1 className="text-2xl font-bold text-navy-700 mb-6">Edit SOP</h1>
       <SopEditor
