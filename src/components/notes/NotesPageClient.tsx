@@ -5,6 +5,7 @@ import {
   Plus, Pin, PinOff, Trash2, Share2, Users, ArrowLeft,
   Circle, Sparkles, Loader2, Calendar, ChevronDown,
   StickyNote, ListChecks, Check, X, Lock, Globe, RotateCcw, MessageSquare,
+  Search, SlidersHorizontal,
 } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { MentionTextarea } from './MentionTextarea'
@@ -58,6 +59,21 @@ export function NotesPageClient({ currentUserId, people, myTeams }: {
   const [error, setError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [statuses, setStatuses] = useState<TodoStatus[]>([])
+
+  // ── Search & filter state ──────────────────────────────────────────────────
+  const [search, setSearch] = useState('')
+  // Notes filters
+  const [noteFilter, setNoteFilter] = useState<'all' | 'mine' | 'shared' | 'pinned'>('all')
+  // Todos view toggle: which sections to show
+  const [todoView, setTodoView] = useState<'all' | 'daily' | 'weekly' | 'tasks'>('all')
+  // Todos filters
+  const [todoStatusFilter, setTodoStatusFilter] = useState('')     // status name or ''
+  const [todoPriorityFilter, setTodoPriorityFilter] = useState('') // 'low'|'medium'|'high' or ''
+  const [todoMineOnly, setTodoMineOnly] = useState(false)
+  const [todoHideDone, setTodoHideDone] = useState(false)
+
+  // Reset filters when space/tab changes
+  useEffect(() => { setSearch(''); setNoteFilter('all'); setTodoView('all'); setTodoStatusFilter(''); setTodoPriorityFilter(''); setTodoMineOnly(false); setTodoHideDone(false) }, [space, tab])
 
   const qs = space === 'personal' ? '?space=personal' : `?teamId=${space}`
 
@@ -122,6 +138,26 @@ export function NotesPageClient({ currentUserId, people, myTeams }: {
   const activeTeam = myTeams.find(t => t.id === space) ?? null
   const isTeamSpace = space !== 'personal'
 
+  // ── Derived: filtered data ─────────────────────────────────────────────────
+  const sq = search.toLowerCase().trim()
+
+  const filteredNotes = notes.filter(n => {
+    if (sq && !n.title.toLowerCase().includes(sq) && !n.body.toLowerCase().includes(sq)) return false
+    if (noteFilter === 'mine' && !n.mine) return false
+    if (noteFilter === 'shared' && !n.shared) return false
+    if (noteFilter === 'pinned' && !n.pinned) return false
+    return true
+  })
+
+  const filteredTodos = todos.filter(t => {
+    if (sq && !t.title.toLowerCase().includes(sq) && !(t.detail ?? '').toLowerCase().includes(sq)) return false
+    if (todoStatusFilter && t.status !== todoStatusFilter) return false
+    if (todoPriorityFilter && t.priority !== todoPriorityFilter) return false
+    if (todoMineOnly && !t.mine && !t.assignedToMe) return false
+    if (todoHideDone && t.is_done) return false
+    return true
+  })
+
   if (activeNote) {
     return (
       <>
@@ -167,49 +203,137 @@ export function NotesPageClient({ currentUserId, people, myTeams }: {
       </p>
 
       {/* Content tabs */}
-      <div className="inline-flex rounded-xl border border-gray-200 bg-white p-1 mb-5">
+      <div className="inline-flex rounded-xl border border-gray-200 bg-white p-1 mb-4">
         <TabBtn active={tab === 'notes'} onClick={() => setTab('notes')}><StickyNote className="w-4 h-4" /> Notes</TabBtn>
         <TabBtn active={tab === 'todos'} onClick={() => setTab('todos')}><ListChecks className="w-4 h-4" /> To-dos</TabBtn>
       </div>
 
+      {/* ── Search bar (shared for both tabs) ── */}
+      <div className="relative mb-3">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder={tab === 'notes' ? 'Search notes…' : 'Search to-dos…'}
+          className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"
+        />
+        {search && (
+          <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
       {tab === 'notes' && (
-        loadingNotes ? <SpinnerRow /> : <>
-          {notes.length === 0 ? (
-            <Empty label={isTeamSpace ? `No team notes yet. Click 'New note' to create one.` : `No personal notes yet. Click 'New note' to get started.`} />
-          ) : (
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {notes.map(n => (
-                <NoteCard
-                  key={n.id}
-                  note={n}
-                  onOpen={() => setActiveNote(n)}
-                  onDelete={() => requestDelete({ type: 'note', id: n.id, title: n.title, mine: n.mine, ownerName: null, canDelete: n.mine || isTeamSpace })}
-                />
-              ))}
-            </div>
-          )}
-          <TrashSection
-            show={showTrash} onToggle={() => setShowTrash(s => !s)}
-            trashNotes={trashNotes} trashTodos={[]}
-            onRestoreNote={id => restore('note', id)}
-          />
+        <>
+          {/* Notes filter chips */}
+          <div className="flex flex-wrap items-center gap-1.5 mb-4">
+            {(['all', 'mine', 'shared', 'pinned'] as const).map(f => (
+              <button key={f} onClick={() => setNoteFilter(f)}
+                className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors capitalize ${noteFilter === f ? 'bg-navy-700 text-white border-navy-700' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'}`}>
+                {f === 'all' ? 'All' : f === 'mine' ? 'Mine' : f === 'shared' ? 'Shared with me' : '📌 Pinned'}
+              </button>
+            ))}
+            {(search || noteFilter !== 'all') && (
+              <span className="text-xs text-gray-400 ml-1">
+                {filteredNotes.length} of {notes.length}
+              </span>
+            )}
+          </div>
+
+          {loadingNotes ? <SpinnerRow /> : <>
+            {filteredNotes.length === 0 ? (
+              <Empty label={search || noteFilter !== 'all' ? 'No notes match your search.' : isTeamSpace ? `No team notes yet. Click 'New note' to create one.` : `No personal notes yet. Click 'New note' to get started.`} />
+            ) : (
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {filteredNotes.map(n => (
+                  <NoteCard key={n.id} note={n}
+                    onOpen={() => setActiveNote(n)}
+                    onDelete={() => requestDelete({ type: 'note', id: n.id, title: n.title, mine: n.mine, ownerName: null, canDelete: n.mine || isTeamSpace })}
+                  />
+                ))}
+              </div>
+            )}
+            <TrashSection show={showTrash} onToggle={() => setShowTrash(s => !s)} trashNotes={trashNotes} trashTodos={[]} onRestoreNote={id => restore('note', id)} />
+          </>}
         </>
       )}
 
       {tab === 'todos' && (
-        <TodosSection
-          todos={todos} trashTodos={trashTodos}
-          people={people} teams={myTeams} statuses={statuses}
-          currentTeamId={isTeamSpace ? space : null}
-          currentUserId={currentUserId}
-          onRefresh={loadTodos}
-          loading={loadingTodos}
-          onDelete={t => requestDelete({
-            type: 'todo', id: t.id, title: t.title, mine: t.mine, ownerName: t.ownerName,
-            canDelete: t.mine || (!!t.team_id),
-          })}
-          onRestore={id => restore('todo', id)}
-        />
+        <>
+          {/* Todos view toggle + filters */}
+          <div className="space-y-2 mb-4">
+            {/* View toggle */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {([
+                { key: 'all',    label: 'All' },
+                { key: 'daily',  label: '🌅 Daily' },
+                { key: 'weekly', label: '📅 Weekly' },
+                { key: 'tasks',  label: '☑ Tasks' },
+              ] as const).map(v => (
+                <button key={v.key} onClick={() => setTodoView(v.key)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${todoView === v.key ? 'bg-navy-700 text-white border-navy-700' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'}`}>
+                  {v.label}
+                </button>
+              ))}
+              <div className="flex-1" />
+              {(search || todoStatusFilter || todoPriorityFilter || todoMineOnly || todoHideDone) && (
+                <span className="text-xs text-gray-400">{filteredTodos.length} of {todos.length}</span>
+              )}
+            </div>
+
+            {/* Filter strip */}
+            <div className="flex flex-wrap items-center gap-2">
+              <SlidersHorizontal className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+              {/* Status filter */}
+              <select value={todoStatusFilter} onChange={e => setTodoStatusFilter(e.target.value)}
+                className={`text-xs border rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-teal-500 ${todoStatusFilter ? 'border-teal-300 bg-teal-50 text-teal-800' : 'border-gray-200 text-gray-600 bg-white'}`}>
+                <option value="">Any status</option>
+                {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+              </select>
+              {/* Priority filter */}
+              <select value={todoPriorityFilter} onChange={e => setTodoPriorityFilter(e.target.value)}
+                className={`text-xs border rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-teal-500 ${todoPriorityFilter ? 'border-teal-300 bg-teal-50 text-teal-800' : 'border-gray-200 text-gray-600 bg-white'}`}>
+                <option value="">Any priority</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+              {/* Mine / assigned-to-me toggle */}
+              <button onClick={() => setTodoMineOnly(v => !v)}
+                className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${todoMineOnly ? 'border-teal-300 bg-teal-50 text-teal-800' : 'border-gray-200 text-gray-600 bg-white hover:border-gray-300'}`}>
+                Mine / assigned
+              </button>
+              {/* Hide done toggle */}
+              <button onClick={() => setTodoHideDone(v => !v)}
+                className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${todoHideDone ? 'border-teal-300 bg-teal-50 text-teal-800' : 'border-gray-200 text-gray-600 bg-white hover:border-gray-300'}`}>
+                Hide done
+              </button>
+              {/* Clear all filters */}
+              {(todoStatusFilter || todoPriorityFilter || todoMineOnly || todoHideDone) && (
+                <button onClick={() => { setTodoStatusFilter(''); setTodoPriorityFilter(''); setTodoMineOnly(false); setTodoHideDone(false) }}
+                  className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-0.5">
+                  <X className="w-3 h-3" /> Clear
+                </button>
+              )}
+            </div>
+          </div>
+
+          <TodosSection
+            todos={filteredTodos} trashTodos={trashTodos}
+            people={people} teams={myTeams} statuses={statuses}
+            currentTeamId={isTeamSpace ? space : null}
+            currentUserId={currentUserId}
+            todoView={todoView}
+            onRefresh={loadTodos}
+            loading={loadingTodos}
+            onDelete={t => requestDelete({
+              type: 'todo', id: t.id, title: t.title, mine: t.mine, ownerName: t.ownerName,
+              canDelete: t.mine || (!!t.team_id),
+            })}
+            onRestore={id => restore('todo', id)}
+          />
+        </>
       )}
     </div>
   )
@@ -531,9 +655,10 @@ function AddTaskForm({ statuses, people, teams, currentTeamId, defaultRecurrence
 
 // ─── Todos section with Daily / Weekly / Tasks grouping ───────────────────────
 
-function TodosSection({ todos, trashTodos, people, teams, statuses, currentTeamId, currentUserId, onRefresh, loading, onDelete, onRestore }: {
+function TodosSection({ todos, trashTodos, people, teams, statuses, currentTeamId, currentUserId, todoView, onRefresh, loading, onDelete, onRestore }: {
   todos: Todo[]; trashTodos: Todo[]; people: Person[]; teams: Team[]; statuses: TodoStatus[]
   currentTeamId: string | null; currentUserId: string
+  todoView: 'all' | 'daily' | 'weekly' | 'tasks'
   onRefresh: () => void; loading: boolean
   onDelete: (t: Todo) => void; onRestore: (id: string) => void
 }) {
@@ -545,12 +670,13 @@ function TodosSection({ todos, trashTodos, people, teams, statuses, currentTeamI
   }
   async function changeStatus(id: string, s: TodoStatus) { await patch(id, { status: s.name, isDone: s.is_done }) }
 
-  // Split todos into sections by recurrence, templates only (no child instances shown separately)
+  // Split todos into sections by recurrence (templates only for recurring)
   const daily   = todos.filter(t => t.recurrence === 'daily'  && !t.recurrence_parent_id)
   const weekly  = todos.filter(t => t.recurrence === 'weekly' && !t.recurrence_parent_id)
   const regular = todos.filter(t => t.recurrence === 'none')
   const allEmpty = daily.length === 0 && weekly.length === 0 && regular.length === 0
 
+  const setExpand = (id: string) => setExpanded(prev => prev === id ? null : id)
   const rowProps = (t: Todo) => ({
     people, teams, statuses,
     expanded: expanded === t.id,
@@ -559,73 +685,55 @@ function TodosSection({ todos, trashTodos, people, teams, statuses, currentTeamI
     onPatch: (b: Record<string, unknown>) => patch(t.id, b),
     onDelete: () => onDelete(t),
   })
-  const setExpand = (id: string) => setExpanded(prev => prev === id ? null : id)
+
+  const showDaily   = todoView === 'all' || todoView === 'daily'
+  const showWeekly  = todoView === 'all' || todoView === 'weekly'
+  const showTasks   = todoView === 'all' || todoView === 'tasks'
 
   return (
     <div className="space-y-6">
+      {loading && <SpinnerRow />}
+
       {/* Daily section */}
-      <div className="space-y-3">
-        <div className="flex items-center gap-3">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
-            🌅 Daily tasks
-          </p>
-          <div className="flex-1 h-px bg-gray-100" />
-          <span className="text-[11px] text-gray-400">Repeats every day</span>
+      {!loading && showDaily && (
+        <div className="space-y-3">
+          <SectionHeader emoji="🌅" label="Daily tasks" note="Repeats every day" />
+          <AddTaskForm statuses={statuses} people={people} teams={teams} currentTeamId={currentTeamId} defaultRecurrence="daily" onRefresh={onRefresh} />
+          {daily.length === 0
+            ? <p className="text-xs text-gray-400 italic pl-1">No recurring daily tasks yet.</p>
+            : <div className="space-y-2">{daily.map(t => <TodoRow key={t.id} t={t} {...rowProps(t)} />)}</div>}
         </div>
-        <AddTaskForm statuses={statuses} people={people} teams={teams} currentTeamId={currentTeamId} defaultRecurrence="daily" onRefresh={onRefresh} />
-        {loading ? null : daily.length === 0 ? (
-          <p className="text-xs text-gray-400 italic pl-1">No recurring daily tasks yet.</p>
-        ) : (
-          <div className="space-y-2">
-            {daily.map(t => <TodoRow key={t.id} t={t} {...rowProps(t)} />)}
-          </div>
-        )}
-      </div>
+      )}
 
       {/* Weekly section */}
-      <div className="space-y-3">
-        <div className="flex items-center gap-3">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
-            📅 Weekly tasks
-          </p>
-          <div className="flex-1 h-px bg-gray-100" />
-          <span className="text-[11px] text-gray-400">Repeats every Monday</span>
+      {!loading && showWeekly && (
+        <div className="space-y-3">
+          <SectionHeader emoji="📅" label="Weekly tasks" note="Repeats every Monday" />
+          <AddTaskForm statuses={statuses} people={people} teams={teams} currentTeamId={currentTeamId} defaultRecurrence="weekly" onRefresh={onRefresh} />
+          {weekly.length === 0
+            ? <p className="text-xs text-gray-400 italic pl-1">No recurring weekly tasks yet.</p>
+            : <div className="space-y-2">{weekly.map(t => <TodoRow key={t.id} t={t} {...rowProps(t)} />)}</div>}
         </div>
-        <AddTaskForm statuses={statuses} people={people} teams={teams} currentTeamId={currentTeamId} defaultRecurrence="weekly" onRefresh={onRefresh} />
-        {loading ? null : weekly.length === 0 ? (
-          <p className="text-xs text-gray-400 italic pl-1">No recurring weekly tasks yet.</p>
-        ) : (
-          <div className="space-y-2">
-            {weekly.map(t => <TodoRow key={t.id} t={t} {...rowProps(t)} />)}
-          </div>
-        )}
-      </div>
+      )}
 
       {/* Regular tasks section */}
-      <div className="space-y-3">
-        <div className="flex items-center gap-3">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Tasks</p>
-          <div className="flex-1 h-px bg-gray-100" />
+      {!loading && showTasks && (
+        <div className="space-y-3">
+          <SectionHeader label="Tasks" />
+          <AddTaskForm statuses={statuses} people={people} teams={teams} currentTeamId={currentTeamId} defaultRecurrence="none" onRefresh={onRefresh} />
+          {regular.length === 0
+            ? <p className="text-xs text-gray-400 italic pl-1">No tasks yet.</p>
+            : <>
+                <div className="space-y-2">{regular.filter(t => !t.is_done).map(t => <TodoRow key={t.id} t={t} {...rowProps(t)} />)}</div>
+                {regular.some(t => t.is_done) && (
+                  <div>
+                    <p className="text-[11px] text-gray-400 uppercase tracking-wide font-semibold mb-1.5 mt-3">Completed</p>
+                    <div className="space-y-2">{regular.filter(t => t.is_done).map(t => <TodoRow key={t.id} t={t} {...rowProps(t)} />)}</div>
+                  </div>
+                )}
+              </>}
         </div>
-        <AddTaskForm statuses={statuses} people={people} teams={teams} currentTeamId={currentTeamId} defaultRecurrence="none" onRefresh={onRefresh} />
-        {loading ? <SpinnerRow /> : regular.length === 0 ? (
-          <p className="text-xs text-gray-400 italic pl-1">No tasks yet.</p>
-        ) : (
-          <>
-            <div className="space-y-2">
-              {regular.filter(t => !t.is_done).map(t => <TodoRow key={t.id} t={t} {...rowProps(t)} />)}
-            </div>
-            {regular.some(t => t.is_done) && (
-              <div>
-                <p className="text-[11px] text-gray-400 uppercase tracking-wide font-semibold mb-1.5 mt-3">Completed</p>
-                <div className="space-y-2">
-                  {regular.filter(t => t.is_done).map(t => <TodoRow key={t.id} t={t} {...rowProps(t)} />)}
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
+      )}
 
       {allEmpty && !loading && <Empty label="No to-dos yet. Add one in any section above." />}
       <TrashSection show={showTrash} onToggle={() => setShowTrash(s => !s)} trashNotes={[]} trashTodos={trashTodos} onRestoreTodo={onRestore} />
@@ -722,6 +830,17 @@ function TrashSection({ show, onToggle, trashNotes, trashTodos, onRestoreNote, o
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function SectionHeader({ emoji, label, note }: { emoji?: string; label: string; note?: string }) {
+  return (
+    <div className="flex items-center gap-3">
+      <p className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
+        {emoji && <span>{emoji}</span>}{label}
+      </p>
+      <div className="flex-1 h-px bg-gray-100" />
+      {note && <span className="text-[11px] text-gray-400">{note}</span>}
+    </div>
+  )
+}
 function SpaceBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return <button onClick={onClick} className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors ${active ? 'bg-navy-700 text-white border-navy-700' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}>{children}</button>
 }
