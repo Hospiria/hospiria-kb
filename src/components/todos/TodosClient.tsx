@@ -379,7 +379,7 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onA
 }) {
   const [title, setTitle] = useState('')
   const [adding, setAdding] = useState(false)
-  const [mode, setMode] = useState<'quick' | 'ai'>('quick')
+  const [mode, setMode] = useState<'quick' | 'ai'>('ai')
   const [showExtra, setShowExtra] = useState(false)
 
   const defaultStatus = statuses.find(s => s.is_default)?.name ?? (statuses[0]?.name ?? 'To Do')
@@ -402,18 +402,39 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onA
     setListId(defaults.listId ?? '')
   }
 
+  const [aiNote, setAiNote] = useState('')
+
   async function add() {
     const t = title.trim(); if (!t || adding) return
-    setAdding(true)
+    setAdding(true); setAiNote('')
     try {
       if (mode === 'ai') {
         const r = await fetch('/api/todos/ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: t }) })
         const d = await r.json()
         if (r.ok && d.draft) {
+          const draft = d.draft
           await fetch('/api/todos', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...d.draft, teamId: currentTeamId, listId: defaults.listId, recurrence: d.draft.recurrence ?? defaults.recurrence }),
+            body: JSON.stringify({
+              title: draft.title, detail: draft.detail, dueDate: draft.dueDate,
+              priority: draft.priority, assigneeId: draft.assigneeId,
+              teamId: currentTeamId, listId: defaults.listId,
+              recurrence: draft.recurrence ?? defaults.recurrence,
+              recurrenceDayOfWeek: draft.recurrenceDayOfWeek ?? null,
+              recurrenceWeekdaysOnly: draft.recurrenceWeekdaysOnly ?? false,
+              statusName: draft.statusName,
+            }),
           })
+          // Brief confirmation of what the AI picked up
+          const bits: string[] = []
+          if (draft.dueDate) bits.push(`📅 ${draft.dueDate}`)
+          if (draft.recurrence && draft.recurrence !== 'none') bits.push(`↻ ${draft.recurrence}`)
+          if (draft.priority && draft.priority !== 'medium') bits.push(`🚩 ${draft.priority}`)
+          if (draft.assigneeName) bits.push(`→ ${draft.assigneeName}`)
+          setAiNote(bits.length ? `Added · ${bits.join(' · ')}` : 'Added')
+          setTimeout(() => setAiNote(''), 4000)
+        } else {
+          setAiNote(d.error ?? 'Could not parse that.')
         }
       } else {
         const selectedStatus = statuses.find(s => s.name === status)
@@ -439,13 +460,25 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onA
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl">
+      {/* Mode toggle */}
+      <div className="flex items-center gap-2 px-3 pt-2">
+        <div className="inline-flex rounded-lg border border-gray-200 p-0.5 text-xs">
+          <button onClick={() => setMode('ai')} className={`flex items-center gap-1 px-2.5 py-1 rounded-md font-medium transition-colors ${mode === 'ai' ? 'bg-teal-600 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
+            <Sparkles className="w-3 h-3" /> AI
+          </button>
+          <button onClick={() => setMode('quick')} className={`flex items-center gap-1 px-2.5 py-1 rounded-md font-medium transition-colors ${mode === 'quick' ? 'bg-navy-700 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
+            Manual
+          </button>
+        </div>
+        <p className="text-[11px] text-gray-400 truncate">
+          {mode === 'ai' ? 'Type naturally — AI picks up date, recurrence, priority & assignee.' : 'Type a task, or open all fields with the sliders.'}
+        </p>
+      </div>
+
       <div className="flex items-center gap-2 px-3 py-2">
-        <button onClick={() => setMode(m => m === 'ai' ? 'quick' : 'ai')} title={mode === 'ai' ? 'AI mode on — click for manual' : 'Switch to AI'}
-          className={`p-1 rounded-md flex-shrink-0 ${mode === 'ai' ? 'bg-teal-600 text-white' : 'text-gray-400 hover:bg-gray-100'}`}>
-          <Sparkles className="w-4 h-4" />
-        </button>
+        {mode === 'ai' && <Sparkles className="w-4 h-4 text-teal-500 flex-shrink-0" />}
         <input value={title} onChange={e => setTitle(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()}
-          placeholder={mode === 'ai' ? 'Describe a task — AI fills the details…' : 'Add a task, press Enter…'}
+          placeholder={mode === 'ai' ? 'e.g. “remind Sarah to chase checkout report every Monday — high priority”' : 'Add a task, press Enter…'}
           className="flex-1 text-sm bg-transparent focus:outline-none placeholder:text-gray-400" />
         {mode === 'quick' && (
           <button onClick={() => setShowExtra(s => !s)} className={`p-1 rounded flex-shrink-0 ${showExtra ? 'text-teal-600 bg-teal-50' : 'text-gray-300 hover:text-gray-600'}`} title="Set all fields">
@@ -457,6 +490,7 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onA
           {adding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Add
         </button>
       </div>
+      {aiNote && <p className="px-3 pb-2 -mt-1 text-[11px] text-teal-600 font-medium">{aiNote}</p>}
 
       {mode === 'quick' && showExtra && (
         <div className="border-t border-gray-100 px-3 py-3 space-y-2.5">
