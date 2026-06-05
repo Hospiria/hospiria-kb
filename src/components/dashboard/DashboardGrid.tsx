@@ -7,13 +7,20 @@ import {
   SlidersHorizontal, CheckCircle2, Clock, AlertTriangle,
   FileText, GraduationCap, StickyNote, TrendingUp,
   ListChecks, ChevronRight, Pin, RotateCcw,
-  GripVertical, EyeOff, Check, Plus, Sparkles, Trash2, Bell, Loader2,
+  GripVertical, EyeOff, Check, Plus, Sparkles, Trash2, Bell, Loader2, Flag,
 } from 'lucide-react'
 import type { MemberChase, TeamQuizStat } from '@/app/(app)/dashboard/page'
 import type { Profile } from '@/types'
 
 type Person = { id: string; full_name: string | null }
 type TeamLite = { id: string; name: string }
+
+function greeting(): string {
+  const h = new Date().getHours()
+  if (h < 12) return 'Good morning'
+  if (h < 18) return 'Good afternoon'
+  return 'Good evening'
+}
 
 // ─── Card catalogue ───────────────────────────────────────────────────────────
 
@@ -181,7 +188,7 @@ export function DashboardGrid({ profile, role, hiddenCards: initialHidden, cardL
       <div className="flex items-start justify-between mb-6 gap-4">
         <div>
           <h1 className="text-3xl font-black text-navy-700 tracking-tight">
-            Welcome back, {profile.full_name?.split(' ')[0] ?? 'there'} 👋
+            {greeting()}, {profile.full_name?.split(' ')[0] ?? 'there'} 👋
           </h1>
           <p className="text-gray-400 text-sm mt-1 font-medium">
             {data.teamName ? `${data.teamName} · ` : ''}Hospiria Knowledge Base
@@ -196,26 +203,38 @@ export function DashboardGrid({ profile, role, hiddenCards: initialHidden, cardL
         )}
       </div>
 
-      {/* Edit-mode toolbar */}
+      {/* Manage Cards drawer (right side, ClickUp-style) */}
       {editing && availableCards.length > 0 && (
-        <div className="bg-navy-50 border border-navy-100 rounded-2xl p-4 mb-5">
-          <p className="text-xs text-navy-600 font-medium mb-3">
-            Drag <GripVertical className="w-3.5 h-3.5 inline -mt-0.5" /> to reorder · drag a card&apos;s right edge to resize · toggle cards below
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {availableCards.map(card => {
-              const visible = !hidden.has(card.key)
-              return (
-                <button key={card.key} onClick={() => toggleCard(card.key)}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${visible ? 'border-teal-300 bg-teal-50 text-teal-800' : 'border-gray-200 bg-white text-gray-400'}`}>
-                  <card.icon className="w-3.5 h-3.5" />
-                  {card.label}
-                  {visible && <CheckCircle2 className="w-3 h-3 text-teal-500" />}
-                </button>
-              )
-            })}
+        <>
+          <div className="fixed inset-0 bg-black/20 z-40" onClick={() => setEditing(false)} />
+          <div className="fixed right-0 top-0 h-full w-80 bg-white shadow-2xl z-50 flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h2 className="font-bold text-navy-700">Manage cards</h2>
+              <button onClick={() => setEditing(false)} className="text-gray-400 hover:text-navy-700"><Check className="w-5 h-5" /></button>
+            </div>
+            <p className="px-5 pt-3 text-[11px] text-gray-400">
+              Drag <GripVertical className="w-3 h-3 inline -mt-0.5" /> on a card to reorder · use the W/H buttons on a card to resize.
+            </p>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {availableCards.map(card => {
+                const visible = !hidden.has(card.key)
+                return (
+                  <div key={card.key} className="flex items-start gap-3 p-3 rounded-xl border border-gray-200">
+                    <div className="p-1.5 rounded-lg bg-navy-50 text-navy-600 flex-shrink-0"><card.icon className="w-4 h-4" /></div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-navy-700">{card.label}</p>
+                      <p className="text-[11px] text-gray-400 leading-snug">{card.description}</p>
+                    </div>
+                    <button onClick={() => toggleCard(card.key)}
+                      className={`text-[11px] font-semibold px-2 py-1 rounded-lg flex-shrink-0 flex items-center gap-1 transition-colors ${visible ? 'bg-teal-50 text-teal-700 border border-teal-200' : 'bg-navy-700 text-white'}`}>
+                      {visible ? <><Check className="w-3 h-3" /> Added</> : 'Add'}
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* Super admin: original rich dashboard first */}
@@ -337,7 +356,15 @@ function Empty({ msg }: { msg: string }) {
   return <p className="text-sm text-gray-400 italic px-5 py-6">{msg}</p>
 }
 
-function TasksCard({ tasks, people, teams, currentUserId, editing }: {
+const PRIO: Record<string, { c: string; l: string }> = {
+  high:   { c: 'text-red-500',   l: 'High' },
+  medium: { c: 'text-amber-500', l: 'Medium' },
+  low:    { c: 'text-gray-300',  l: 'Low' },
+}
+
+type GroupDef = { key: string; label: string; tone?: 'red' | 'amber'; items: TodoRow[]; recurrence: 'none'|'daily'|'weekly'; due: string }
+
+function TasksCard({ tasks, people, teams, editing }: {
   tasks: Record<string, unknown>[]; people: Person[]; teams: TeamLite[]; currentUserId: string; editing: boolean
 }) {
   const router = useRouter()
@@ -345,8 +372,12 @@ function TasksCard({ tasks, people, teams, currentUserId, editing }: {
   const [view, setView] = useState<TaskView>('all')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [addingIn, setAddingIn] = useState<string | null>(null)
+  const [groupText, setGroupText] = useState('')
 
-  // Quick-add
+  // Top quick-add (AI / manual)
+  const [showAdd, setShowAdd] = useState(false)
   const [addMode, setAddMode] = useState<'ai' | 'manual'>('ai')
   const [addText, setAddText] = useState('')
   const [adding, setAdding] = useState(false)
@@ -367,15 +398,27 @@ function TasksCard({ tasks, people, teams, currentUserId, editing }: {
   const upcoming = oneOff.filter(t => !t.due_date || t.due_date > today)
   const counts: Record<TaskView, number> = { all: items.length, daily: daily.length, weekly: weekly.length, tasks: oneOff.length }
 
+  // Groups per view
+  const groups: GroupDef[] = (() => {
+    const od: GroupDef = { key: 'overdue', label: 'Overdue', tone: 'red', items: overdue, recurrence: 'none', due: today }
+    const dt: GroupDef = { key: 'today', label: 'Due today', tone: 'amber', items: dueToday, recurrence: 'none', due: today }
+    const up: GroupDef = { key: 'upcoming', label: 'Upcoming', items: upcoming, recurrence: 'none', due: '' }
+    const da: GroupDef = { key: 'daily', label: '🌅 Daily routines', items: daily, recurrence: 'daily', due: '' }
+    const wk: GroupDef = { key: 'weekly', label: '📅 Weekly routines', items: weekly, recurrence: 'weekly', due: '' }
+    if (view === 'daily') return [da]
+    if (view === 'weekly') return [wk]
+    if (view === 'tasks') return [od, dt, up]
+    return [od, dt, up, da, wk]
+  })()
+
   // ── Mutations (optimistic) ────────────────────────────────────────────────
   async function toggleDone(t: TodoRow) {
-    setItems(prev => prev.filter(x => x.id !== t.id)) // open list only — remove on complete
+    setItems(prev => prev.filter(x => x.id !== t.id))
     await fetch(`/api/todos/${t.id}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'done', isDone: true }),
     }).catch(() => setItems(prev => [t, ...prev]))
   }
-
   async function saveEdit(id: string, patch: Partial<{ priority: string; dueDate: string; assigneeId: string; teamId: string }>) {
     setBusyId(id)
     setItems(prev => prev.map(x => x.id === id ? {
@@ -390,14 +433,20 @@ function TasksCard({ tasks, people, teams, currentUserId, editing }: {
     }).catch(() => {})
     setBusyId(null)
   }
-
   async function del(id: string) {
-    setItems(prev => prev.filter(x => x.id !== id))
-    setExpandedId(null)
+    setItems(prev => prev.filter(x => x.id !== id)); setExpandedId(null)
     await fetch(`/api/todos/${id}`, { method: 'DELETE' }).catch(() => {})
   }
-
-  async function add() {
+  async function createTodo(body: Record<string, unknown>): Promise<boolean> {
+    const res = await fetch('/api/todos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }).catch(() => null)
+    if (!res || !res.ok) return false
+    const d = await res.json()
+    if (d.todo) { setItems(prev => [d.todo as TodoRow, ...prev]); router.refresh(); return true }
+    return false
+  }
+  async function addTop() {
     if (!addText.trim() || adding) return
     setAdding(true)
     try {
@@ -407,21 +456,20 @@ function TasksCard({ tasks, people, teams, currentUserId, editing }: {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: addText }),
         })
         const d = await r.json()
-        if (!r.ok || !d.draft) { setAdding(false); return }
+        if (!r.ok || !d.draft) return
         body = { ...d.draft }
       } else {
         body = { title: addText, priority: mPriority, dueDate: mDue || null, assigneeId: mAssignee || null, teamId: mTeam || null, recurrence: mRecur }
       }
-      const res = await fetch('/api/todos', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-      })
-      const d = await res.json()
-      if (res.ok && d.todo) {
-        setItems(prev => [d.todo as TodoRow, ...prev])
+      if (await createTodo(body)) {
         setAddText(''); setMDue(''); setMAssignee(''); setMTeam(''); setMRecur('none'); setMPriority('medium')
-        router.refresh() // sync other cards / counts
       }
     } finally { setAdding(false) }
+  }
+  async function addToGroup(g: GroupDef) {
+    if (!groupText.trim()) return
+    const ok = await createTodo({ title: groupText, priority: 'medium', recurrence: g.recurrence, dueDate: g.due || null })
+    if (ok) setGroupText('') // keep input open for rapid entry
   }
 
   const tabs = (
@@ -435,45 +483,53 @@ function TasksCard({ tasks, people, teams, currentUserId, editing }: {
     </div>
   )
 
-  // ── Row ──────────────────────────────────────────────────────────────────
+  const dueCell = (t: TodoRow) => {
+    if ((t.recurrence ?? 'none') !== 'none') return <span className="text-[11px] text-gray-300">—</span>
+    if (!t.due_date) return <span className="text-[11px] text-gray-300">—</span>
+    const cls = t.due_date < today ? 'text-red-500 font-semibold' : t.due_date === today ? 'text-amber-600 font-semibold' : 'text-gray-500'
+    const d = new Date(t.due_date + 'T00:00:00')
+    return <span className={`text-[11px] ${cls}`}>{d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
+  }
+
+  // ── Row (ClickUp-style table) ──────────────────────────────────────────────
   const Row = (t: TodoRow) => {
     const open = expandedId === t.id
     const assigneeName = t.assignee_id ? nameById.get(t.assignee_id) : null
+    const prio = PRIO[t.priority] ?? PRIO.medium
     return (
       <div key={t.id} className="border-b border-gray-50 last:border-0">
-        <div className="flex items-center gap-2.5 py-2">
-          <button onClick={() => toggleDone(t)} title="Mark done"
-            className="w-4 h-4 rounded-full border-2 border-gray-300 hover:border-teal-500 hover:bg-teal-50 flex-shrink-0 transition-colors" />
-          <button onClick={() => setExpandedId(open ? null : t.id)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
-            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${t.priority === 'high' ? 'bg-red-400' : t.priority === 'medium' ? 'bg-amber-400' : 'bg-gray-300'}`} />
-            <span className="text-sm text-navy-700 flex-1 truncate hover:text-teal-600">{t.title}</span>
-            {assigneeName && <span className="text-[10px] text-gray-400 flex-shrink-0 max-w-[80px] truncate">{assigneeName}</span>}
-            {t.is_carry && <span className="text-[10px] bg-red-100 text-red-600 font-bold px-1.5 py-0.5 rounded flex-shrink-0">DUE</span>}
-            {t.due_date && (t.recurrence ?? 'none') === 'none' && <span className="text-[10px] text-gray-400 flex-shrink-0">{t.due_date.slice(5)}</span>}
+        <div className="grid grid-cols-[18px_1fr_64px_64px] items-center gap-2 py-2 group/row">
+          <button onClick={() => toggleDone(t)} title="Mark complete"
+            className="w-4 h-4 rounded-full border-2 border-gray-300 hover:border-teal-500 hover:bg-teal-50 transition-colors" />
+          <button onClick={() => setExpandedId(open ? null : t.id)} className="flex items-center gap-2 min-w-0 text-left">
+            <span className="text-sm text-navy-700 truncate group-hover/row:text-teal-600">{t.title}</span>
+            {assigneeName && <span className="text-[10px] text-gray-400 flex-shrink-0 max-w-[70px] truncate">· {assigneeName}</span>}
+            {t.is_carry && <span className="text-[9px] bg-red-100 text-red-600 font-bold px-1 py-0.5 rounded flex-shrink-0">DUE</span>}
           </button>
+          <div className="flex items-center gap-1 justify-self-start" title={`Priority: ${prio.l}`}>
+            <Flag className={`w-3.5 h-3.5 ${prio.c}`} fill="currentColor" />
+            {t.priority === 'high' && <span className="text-[10px] text-red-500 font-semibold">High</span>}
+          </div>
+          <div className="justify-self-end pr-1">{dueCell(t)}</div>
         </div>
         {open && (
-          <div className="pb-3 pl-7 pr-1 grid grid-cols-2 gap-2">
+          <div className="pb-3 pl-6 pr-1 grid grid-cols-2 gap-2 bg-slate-50/50 rounded-lg mb-1">
             <label className="text-[10px] font-semibold text-gray-400">Priority
-              <select value={t.priority} onChange={e => saveEdit(t.id, { priority: e.target.value })}
-                className="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1 text-xs">
+              <select value={t.priority} onChange={e => saveEdit(t.id, { priority: e.target.value })} className="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1 text-xs">
                 <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
               </select>
             </label>
             <label className="text-[10px] font-semibold text-gray-400">Due date
-              <input type="date" value={t.due_date ?? ''} onChange={e => saveEdit(t.id, { dueDate: e.target.value })}
-                className="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1 text-xs" />
+              <input type="date" value={t.due_date ?? ''} onChange={e => saveEdit(t.id, { dueDate: e.target.value })} className="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1 text-xs" />
             </label>
             <label className="text-[10px] font-semibold text-gray-400">Assigned to
-              <select value={t.assignee_id ?? ''} onChange={e => saveEdit(t.id, { assigneeId: e.target.value })}
-                className="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1 text-xs">
+              <select value={t.assignee_id ?? ''} onChange={e => saveEdit(t.id, { assigneeId: e.target.value })} className="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1 text-xs">
                 <option value="">Unassigned</option>
                 {people.map(p => <option key={p.id} value={p.id}>{p.full_name ?? 'Unknown'}</option>)}
               </select>
             </label>
             <label className="text-[10px] font-semibold text-gray-400">Team
-              <select value={t.team_id ?? ''} onChange={e => saveEdit(t.id, { teamId: e.target.value })}
-                className="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1 text-xs">
+              <select value={t.team_id ?? ''} onChange={e => saveEdit(t.id, { teamId: e.target.value })} className="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1 text-xs">
                 <option value="">Personal</option>
                 {teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
               </select>
@@ -491,13 +547,36 @@ function TasksCard({ tasks, people, teams, currentUserId, editing }: {
     )
   }
 
-  const Section = ({ label, tone, items: list }: { label?: string; tone?: 'red' | 'amber'; items: TodoRow[] }) => {
-    if (list.length === 0) return null
-    const toneClass = tone === 'red' ? 'text-red-600' : tone === 'amber' ? 'text-amber-600' : 'text-gray-400'
+  const Group = (g: GroupDef) => {
+    const isCollapsed = collapsed.has(g.key)
+    const toneClass = g.tone === 'red' ? 'text-red-600' : g.tone === 'amber' ? 'text-amber-600' : 'text-gray-500'
     return (
-      <div className="px-5">
-        {label && <p className={`text-[11px] font-semibold mt-2 mb-0.5 ${toneClass}`}>{label}</p>}
-        {list.map(Row)}
+      <div key={g.key} className="px-5 pt-2">
+        <button onClick={() => setCollapsed(prev => { const n = new Set(prev); n.has(g.key) ? n.delete(g.key) : n.add(g.key); return n })}
+          className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wide mb-0.5">
+          <ChevronRight className={`w-3 h-3 transition-transform ${isCollapsed ? '' : 'rotate-90'} text-gray-400`} />
+          <span className={toneClass}>{g.label}</span>
+          <span className="text-gray-300 font-semibold">{g.items.length}</span>
+        </button>
+        {!isCollapsed && (
+          <>
+            {g.items.map(Row)}
+            {addingIn === g.key ? (
+              <div className="flex items-center gap-1.5 py-1.5">
+                <input autoFocus value={groupText} onChange={e => setGroupText(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') addToGroup(g); if (e.key === 'Escape') { setAddingIn(null); setGroupText('') } }}
+                  onBlur={() => { if (!groupText.trim()) setAddingIn(null) }}
+                  placeholder="Task name, then Enter…"
+                  className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              </div>
+            ) : (
+              <button onClick={() => { setAddingIn(g.key); setGroupText('') }}
+                className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-teal-600 py-1.5">
+                <Plus className="w-3 h-3" /> Add Task
+              </button>
+            )}
+          </>
+        )}
       </div>
     )
   }
@@ -505,71 +584,54 @@ function TasksCard({ tasks, people, teams, currentUserId, editing }: {
   return (
     <CardShell title="My Tasks" icon={ListChecks} color={overdue.length > 0 ? 'red' : 'teal'} headerRight={tabs}>
       <div className="h-full overflow-y-auto flex flex-col">
-        {/* Quick add */}
+        {/* Quick-add (collapsible, AI / manual) */}
         {!editing && (
-          <div className="px-5 py-2.5 border-b border-gray-100 bg-slate-50/60">
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <button onClick={() => setAddMode('ai')} className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${addMode === 'ai' ? 'bg-teal-600 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
-                <Sparkles className="w-3 h-3" /> AI
+          <div className="px-5 py-2 border-b border-gray-100">
+            {!showAdd ? (
+              <button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5 text-xs font-semibold text-teal-600 hover:text-teal-700">
+                <Plus className="w-3.5 h-3.5" /> Quick add
               </button>
-              <button onClick={() => setAddMode('manual')} className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${addMode === 'manual' ? 'bg-navy-700 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
-                Manual
-              </button>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <input value={addText} onChange={e => setAddText(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()}
-                placeholder={addMode === 'ai' ? 'e.g. “chase checkout report Friday, high priority”' : 'Task title…'}
-                className="flex-1 border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
-              <button onClick={add} disabled={adding || !addText.trim()}
-                className="flex items-center gap-1 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg disabled:opacity-50">
-                {adding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Add
-              </button>
-            </div>
-            {addMode === 'manual' && (
-              <div className="flex flex-wrap gap-1.5 mt-1.5">
-                <select value={mPriority} onChange={e => setMPriority(e.target.value)} className="border border-gray-200 rounded-lg px-1.5 py-1 text-[11px]">
-                  <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
-                </select>
-                <input type="date" value={mDue} onChange={e => setMDue(e.target.value)} className="border border-gray-200 rounded-lg px-1.5 py-1 text-[11px]" />
-                <select value={mRecur} onChange={e => setMRecur(e.target.value as 'none'|'daily'|'weekly')} className="border border-gray-200 rounded-lg px-1.5 py-1 text-[11px]">
-                  <option value="none">Once</option><option value="daily">Daily</option><option value="weekly">Weekly</option>
-                </select>
-                <select value={mAssignee} onChange={e => setMAssignee(e.target.value)} className="border border-gray-200 rounded-lg px-1.5 py-1 text-[11px] max-w-[120px]">
-                  <option value="">Assignee…</option>
-                  {people.map(p => <option key={p.id} value={p.id}>{p.full_name ?? 'Unknown'}</option>)}
-                </select>
-                <select value={mTeam} onChange={e => setMTeam(e.target.value)} className="border border-gray-200 rounded-lg px-1.5 py-1 text-[11px] max-w-[120px]">
-                  <option value="">Personal</option>
-                  {teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
-                </select>
+            ) : (
+              <div className="bg-slate-50/70 -mx-1 px-2 py-2 rounded-lg">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <button onClick={() => setAddMode('ai')} className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${addMode === 'ai' ? 'bg-teal-600 text-white' : 'text-gray-500 hover:bg-gray-100'}`}><Sparkles className="w-3 h-3" /> AI</button>
+                  <button onClick={() => setAddMode('manual')} className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${addMode === 'manual' ? 'bg-navy-700 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>Manual</button>
+                  <button onClick={() => setShowAdd(false)} className="ml-auto text-[11px] text-gray-400 hover:text-gray-600">Close</button>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <input value={addText} onChange={e => setAddText(e.target.value)} onKeyDown={e => e.key === 'Enter' && addTop()}
+                    placeholder={addMode === 'ai' ? 'e.g. “chase checkout report Friday, high priority”' : 'Task title…'}
+                    className="flex-1 border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                  <button onClick={addTop} disabled={adding || !addText.trim()} className="flex items-center gap-1 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg disabled:opacity-50">
+                    {adding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Add
+                  </button>
+                </div>
+                {addMode === 'manual' && (
+                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    <select value={mPriority} onChange={e => setMPriority(e.target.value)} className="border border-gray-200 rounded-lg px-1.5 py-1 text-[11px]"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select>
+                    <input type="date" value={mDue} onChange={e => setMDue(e.target.value)} className="border border-gray-200 rounded-lg px-1.5 py-1 text-[11px]" />
+                    <select value={mRecur} onChange={e => setMRecur(e.target.value as 'none'|'daily'|'weekly')} className="border border-gray-200 rounded-lg px-1.5 py-1 text-[11px]"><option value="none">Once</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select>
+                    <select value={mAssignee} onChange={e => setMAssignee(e.target.value)} className="border border-gray-200 rounded-lg px-1.5 py-1 text-[11px] max-w-[120px]"><option value="">Assignee…</option>{people.map(p => <option key={p.id} value={p.id}>{p.full_name ?? 'Unknown'}</option>)}</select>
+                    <select value={mTeam} onChange={e => setMTeam(e.target.value)} className="border border-gray-200 rounded-lg px-1.5 py-1 text-[11px] max-w-[120px]"><option value="">Personal</option>{teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}</select>
+                  </div>
+                )}
               </div>
             )}
           </div>
         )}
 
-        {/* List */}
+        {/* Column header */}
+        <div className="grid grid-cols-[18px_1fr_64px_64px] gap-2 px-5 py-1.5 border-b border-gray-100 text-[10px] font-bold uppercase tracking-wide text-gray-400 sticky top-0 bg-white z-10">
+          <span /><span>Name</span><span className="justify-self-start">Priority</span><span className="justify-self-end pr-1">Due</span>
+        </div>
+
+        {/* Grouped list */}
         {items.length === 0 ? (
           <Empty msg="No open tasks — add one above. 🎉" />
-        ) : view === 'all' ? (
-          <>
-            <Section label={`⚠️ Overdue (${overdue.length})`} tone="red" items={overdue} />
-            <Section label={`📅 Due today (${dueToday.length})`} tone="amber" items={dueToday} />
-            <Section label={`Upcoming (${upcoming.length})`} items={upcoming} />
-            <Section label="🌅 Daily routines" items={daily} />
-            <Section label="📅 Weekly routines" items={weekly} />
-          </>
-        ) : view === 'daily' ? (
-          daily.length ? <Section items={daily} /> : <Empty msg="No daily routines." />
-        ) : view === 'weekly' ? (
-          weekly.length ? <Section items={weekly} /> : <Empty msg="No weekly routines." />
+        ) : groups.every(g => g.items.length === 0) ? (
+          <Empty msg={view === 'daily' ? 'No daily routines.' : view === 'weekly' ? 'No weekly routines.' : 'Nothing here.'} />
         ) : (
-          oneOff.length ? (
-            <>
-              <Section label={`⚠️ Overdue (${overdue.length})`} tone="red" items={overdue} />
-              <Section label={`📅 Due today (${dueToday.length})`} tone="amber" items={dueToday} />
-              <Section label={`Upcoming (${upcoming.length})`} items={upcoming} />
-            </>
-          ) : <Empty msg="No one-off tasks." />
+          groups.filter(g => g.items.length > 0 || g.key === 'today' || g.key === 'upcoming' || view === 'daily' || view === 'weekly').map(Group)
         )}
       </div>
     </CardShell>
