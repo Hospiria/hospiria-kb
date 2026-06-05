@@ -8,11 +8,18 @@ export interface Person { id: string; full_name: string | null }
 export interface Team   { id: string; name: string }
 export interface TodoStatus { id: string; name: string; color: string; is_done: boolean; is_default: boolean }
 
+export interface NoteFolder {
+  id: string; owner_id: string; team_id: string | null
+  name: string; color: string; icon: string | null; position: number
+}
+
 export interface Note {
-  id: string; title: string; body: string; color: string | null; pinned: boolean
-  updated_at: string; team_id: string | null; mine: boolean; canEdit: boolean
+  id: string; title: string; body: string; content: unknown | null; color: string | null; pinned: boolean
+  updated_at: string; team_id: string | null; folder_id: string | null; mine: boolean; canEdit: boolean
   shared: boolean; deleted_at: string | null; deletedByName: string | null
   sop_id: string | null; sopTitle: string | null
+  sops?: { id: string; title: string }[]
+  companies?: { id: string; name: string }[]
 }
 
 export interface Todo {
