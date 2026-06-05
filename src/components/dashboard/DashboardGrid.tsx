@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef, useMemo, createContext, useContext } from 'react'
+import { useState, useCallback, useRef, useMemo, createContext, useContext, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -42,14 +42,12 @@ const CARD_CATALOGUE: {
 ]
 
 const DEFAULT_HEIGHT = 420
-
-// Simple, discrete sizes — no pixel fiddling.
-const WIDTH_OPTS: { label: string; span: number }[] = [
-  { label: '⅓', span: 4 }, { label: '½', span: 6 }, { label: 'Full', span: 12 },
-]
-const HEIGHT_OPTS: { label: string; px: number }[] = [
-  { label: 'S', px: 260 }, { label: 'M', px: 420 }, { label: 'L', px: 640 },
-]
+const MIN_HEIGHT = 200
+const MAX_HEIGHT = 900
+const SNAP_SPANS = [4, 6, 8, 12]
+const GRID_GAP = 16 // matches gap-4
+const snapSpan = (raw: number) =>
+  SNAP_SPANS.reduce((best, s) => Math.abs(s - raw) < Math.abs(best - raw) ? s : best, SNAP_SPANS[0])
 
 // Lets each card's header render a drag grip (ClickUp-style) without threading
 // props through every card component. The grid supplies the draggable handlers.
@@ -110,6 +108,17 @@ export function DashboardGrid({ profile, role, hiddenCards: initialHidden, cardL
   })
 
   const dragKey = useRef<string | null>(null)
+  const gridRef = useRef<HTMLDivElement>(null)
+  // Refs mirror state so endResize reads the latest value without stale closure issues
+  const spansRef = useRef(spans)
+  const heightsRef = useRef(heights)
+  useEffect(() => { spansRef.current = spans }, [spans])
+  useEffect(() => { heightsRef.current = heights }, [heights])
+
+  const resizeState = useRef<{
+    key: string; axes: { x: boolean; y: boolean }
+    startX: number; startY: number; startSpan: number; startHeight: number; unit: number
+  } | null>(null)
 
   // ── Persistence ──────────────────────────────────────────────────────────
   const persist = useCallback(async (body: Record<string, unknown>) => {
@@ -150,19 +159,43 @@ export function DashboardGrid({ profile, role, hiddenCards: initialHidden, cardL
     })
   }
   const handleDragEnd = () => {
-    if (dragKey.current) saveLayout(order, spans, heights)
+    if (dragKey.current) saveLayout(order, spansRef.current, heightsRef.current)
     dragKey.current = null
   }
 
-  // ── Simple size setters (buttons, no dragging) ────────────────────────────
-  const setWidth = (key: string, span: number) => {
-    const next = { ...spans, [key]: span }
-    setSpans(next); saveLayout(order, next, heights)
-  }
-  const setHeight = (key: string, px: number) => {
-    const next = { ...heights, [key]: px }
-    setHeights(next); saveLayout(order, spans, next)
-  }
+  // ── Edge resize (pointer capture — works like a native window) ────────────
+  const startResize = useCallback((key: string, axes: { x: boolean; y: boolean }) => (e: React.PointerEvent) => {
+    e.preventDefault(); e.stopPropagation()
+    const rect = gridRef.current?.getBoundingClientRect()
+    const unit = rect ? (rect.width + GRID_GAP) / 12 : 80
+    resizeState.current = {
+      key, axes, unit,
+      startX: e.clientX, startY: e.clientY,
+      startSpan: spansRef.current[key] ?? 6,
+      startHeight: heightsRef.current[key] ?? DEFAULT_HEIGHT,
+    }
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }, [])
+
+  const onResizeMove = useCallback((e: React.PointerEvent) => {
+    const rs = resizeState.current; if (!rs) return
+    if (rs.axes.x) {
+      const snapped = snapSpan(Math.round(rs.startSpan + (e.clientX - rs.startX) / rs.unit))
+      const clamped = Math.min(12, Math.max(4, snapped))
+      setSpans(prev => prev[rs.key] === clamped ? prev : { ...prev, [rs.key]: clamped })
+    }
+    if (rs.axes.y) {
+      const h = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, Math.round(rs.startHeight + (e.clientY - rs.startY))))
+      setHeights(prev => prev[rs.key] === h ? prev : { ...prev, [rs.key]: h })
+    }
+  }, [])
+
+  const endResize = useCallback((e: React.PointerEvent) => {
+    if (!resizeState.current) return
+    ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+    resizeState.current = null
+    saveLayout(order, spansRef.current, heightsRef.current)
+  }, [order, saveLayout])
 
   const visibleOrdered = order.filter(k => availableKeys.includes(k) && !hidden.has(k))
   const allHidden = availableCards.length > 0 && visibleOrdered.length === 0
@@ -213,7 +246,7 @@ export function DashboardGrid({ profile, role, hiddenCards: initialHidden, cardL
               <button onClick={() => setEditing(false)} className="text-gray-400 hover:text-navy-700"><Check className="w-5 h-5" /></button>
             </div>
             <p className="px-5 pt-3 text-[11px] text-gray-400">
-              Drag <GripVertical className="w-3 h-3 inline -mt-0.5" /> on a card to reorder · use the W/H buttons on a card to resize.
+              Drag <GripVertical className="w-3 h-3 inline -mt-0.5" /> to reorder · hover a card and drag its right or bottom edge to resize.
             </p>
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
               {availableCards.map(card => {
@@ -241,18 +274,16 @@ export function DashboardGrid({ profile, role, hiddenCards: initialHidden, cardL
       {role === 'super_admin' && adminChildren && <div className="mb-6">{adminChildren}</div>}
 
       {/* Cards grid */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start [grid-auto-flow:row_dense]">
+      <div ref={gridRef} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start [grid-auto-flow:row_dense]">
         {visibleOrdered.map(key => (
           <div
             key={key}
             style={{ gridColumn: `span ${spans[key] ?? 6}`, height: `${heights[key] ?? DEFAULT_HEIGHT}px` }}
-            className={`relative ${editing ? 'ring-2 ring-navy-100 rounded-2xl' : ''}`}
+            className={`relative group/card ${editing ? 'ring-2 ring-navy-100 rounded-2xl' : ''}`}
             onDragEnter={handleDragEnter(key)}
             onDragOver={(e) => e.preventDefault()}
           >
-            {/* Card content. Drag-to-reorder is always available via the header
-                grip. Only in edit mode do we make the body inert so clicks land
-                on the size/hide toolbar instead of navigating. */}
+            {/* Card content — inert in edit mode so grip drags work cleanly */}
             <div className={`h-full ${editing ? 'pointer-events-none select-none' : ''}`}>
               <CardDragContext.Provider value={{
                 dragProps: { draggable: true, onDragStart: handleDragStart(key), onDragEnd: handleDragEnd },
@@ -261,30 +292,52 @@ export function DashboardGrid({ profile, role, hiddenCards: initialHidden, cardL
               </CardDragContext.Provider>
             </div>
 
-            {/* Size + hide toolbar (edit mode only) */}
+            {/* ── Resize handles — always on, appear on card hover ── */}
+            {/* Right edge → width */}
+            <div
+              onPointerDown={startResize(key, { x: true, y: false })}
+              onPointerMove={onResizeMove}
+              onPointerUp={endResize}
+              title="Drag to resize width"
+              className="absolute top-0 right-0 h-full w-2.5 z-20 cursor-ew-resize flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity select-none"
+            >
+              <div className="h-10 w-1 rounded-full bg-gray-300 hover:bg-teal-400 transition-colors" />
+            </div>
+            {/* Bottom edge → height */}
+            <div
+              onPointerDown={startResize(key, { x: false, y: true })}
+              onPointerMove={onResizeMove}
+              onPointerUp={endResize}
+              title="Drag to resize height"
+              className="absolute bottom-0 left-0 w-full h-2.5 z-20 cursor-ns-resize flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity select-none"
+            >
+              <div className="h-1 w-10 rounded-full bg-gray-300 hover:bg-teal-400 transition-colors" />
+            </div>
+            {/* Bottom-right corner → both */}
+            <div
+              onPointerDown={startResize(key, { x: true, y: true })}
+              onPointerMove={onResizeMove}
+              onPointerUp={endResize}
+              title="Drag to resize"
+              className="absolute bottom-0 right-0 w-5 h-5 z-30 cursor-nwse-resize opacity-0 group-hover/card:opacity-100 transition-opacity select-none flex items-end justify-end p-1"
+            >
+              {/* Standard resize grip dots */}
+              <svg width="8" height="8" viewBox="0 0 8 8" className="text-gray-400">
+                <circle cx="7" cy="1" r="1" fill="currentColor"/>
+                <circle cx="4" cy="4" r="1" fill="currentColor"/>
+                <circle cx="7" cy="4" r="1" fill="currentColor"/>
+                <circle cx="1" cy="7" r="1" fill="currentColor"/>
+                <circle cx="4" cy="7" r="1" fill="currentColor"/>
+                <circle cx="7" cy="7" r="1" fill="currentColor"/>
+              </svg>
+            </div>
+
+            {/* Edit mode: hide button only */}
             {editing && (
-              <div className="absolute top-2 right-2 z-30 flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg shadow-sm px-1.5 py-1 pointer-events-auto">
-                <span className="text-[10px] text-gray-400 font-semibold pl-0.5">W</span>
-                {WIDTH_OPTS.map(w => (
-                  <button key={w.label} onClick={() => setWidth(key, w.span)}
-                    className={`text-[11px] font-bold w-6 h-5 rounded transition-colors ${(spans[key] ?? 6) === w.span ? 'bg-navy-700 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
-                    {w.label}
-                  </button>
-                ))}
-                <span className="w-px h-4 bg-gray-200 mx-0.5" />
-                <span className="text-[10px] text-gray-400 font-semibold">H</span>
-                {HEIGHT_OPTS.map(h => (
-                  <button key={h.label} onClick={() => setHeight(key, h.px)}
-                    className={`text-[11px] font-bold w-5 h-5 rounded transition-colors ${(heights[key] ?? DEFAULT_HEIGHT) === h.px ? 'bg-navy-700 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
-                    {h.label}
-                  </button>
-                ))}
-                <span className="w-px h-4 bg-gray-200 mx-0.5" />
-                <button onClick={() => toggleCard(key)} title="Hide this card"
-                  className="p-1 rounded text-gray-400 hover:text-red-500">
-                  <EyeOff className="w-3.5 h-3.5" />
-                </button>
-              </div>
+              <button onClick={() => toggleCard(key)} title="Hide card"
+                className="absolute top-2 right-2 z-30 p-1.5 rounded-lg bg-white border border-gray-200 shadow-sm text-gray-400 hover:text-red-500 hover:border-red-200 pointer-events-auto transition-colors">
+                <EyeOff className="w-3.5 h-3.5" />
+              </button>
             )}
           </div>
         ))}
