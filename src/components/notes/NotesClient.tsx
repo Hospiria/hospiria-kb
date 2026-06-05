@@ -327,9 +327,24 @@ function NoteEditor({ note, people, currentUserId, isTeamNote, onBack, onChanged
   const [linkedSops, setLinkedSops] = useState<{ id: string; title: string }[]>(note.sops ?? (note.sop_id && note.sopTitle ? [{ id: note.sop_id, title: note.sopTitle }] : []))
   const [linkedCompanies, setLinkedCompanies] = useState<{ id: string; name: string }[]>(note.companies ?? [])
   const [showSlash, setShowSlash] = useState(false)
-  const [slashQuery, setSlashQuery] = useState('')
-  const [slashResults, setSlashResults] = useState<{ label: string; href?: string; action?: () => void }[]>([])
+  // ── slash command state ─────────────────────────────────────────────────────
+  const [slashOpen, setSlashOpen] = useState(false)
   const [slashPos, setSlashPos] = useState({ top: 0, left: 0 })
+  const [slashQuery, setSlashQuery] = useState('')
+  const [slashResults, setSlashResults] = useState<{ label: string; text: string; href: string }[]>([])
+  const slashStartPos = useRef<number | null>(null) // editor position where "/" was typed
+  const slashDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // ── @mention state ──────────────────────────────────────────────────────────
+  const [mentionOpen, setMentionOpen] = useState(false)
+  const [mentionPos, setMentionPos] = useState({ top: 0, left: 0 })
+  const [mentionQuery, setMentionQuery] = useState('')
+  const mentionStartPos = useRef<number | null>(null)
+  const filteredPeople = useMemo(() =>
+    mentionQuery ? people.filter(p => (p.full_name ?? '').toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6) : people.slice(0, 6),
+    [people, mentionQuery]
+  )
+
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const readOnly = !note.canEdit
   const imgInputRef = useRef<HTMLInputElement>(null)
@@ -343,57 +358,80 @@ function NoteEditor({ note, people, currentUserId, isTeamNote, onBack, onChanged
   function triggerSave(patch: Record<string, unknown>) {
     setSaved(false)
     if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => save(patch), 700)
+    saveTimer.current = setTimeout(() => save(patch), 800)
   }
+
   async function togglePin() { const v = !pinned; setPinned(v); await save({ pinned: v }) }
+  async function saveSops(sops: { id: string; title: string }[]) { setLinkedSops(sops); await save({ sopIds: sops.map(s => s.id) }) }
+  async function saveCompanies(cos: { id: string; name: string }[]) { setLinkedCompanies(cos); await save({ companyIds: cos.map(c => c.id) }) }
 
-  async function saveSops(sops: { id: string; title: string }[]) {
-    setLinkedSops(sops)
-    await save({ sopIds: sops.map(s => s.id), sops })
-  }
-  async function saveCompanies(cos: { id: string; name: string }[]) {
-    setLinkedCompanies(cos)
-    await save({ companyIds: cos.map(c => c.id) })
-  }
-
-  // Image upload
   async function uploadImage(file: File) {
     const form = new FormData(); form.append('file', file)
     const r = await fetch('/api/notes/upload-image', { method: 'POST', body: form })
     if (r.ok) { const { url } = await r.json(); editor?.chain().focus().setImage({ src: url }).run() }
   }
 
-  // Slash command search
-  const slashDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
-  async function handleSlash(q: string, coords: { top: number; left: number }) {
-    setSlashQuery(q); setSlashPos(coords)
+  // ── Get cursor screen position from Tiptap ──────────────────────────────────
+  function getCursorCoords(ed: ReturnType<typeof useEditor>): { top: number; left: number } | null {
+    if (!ed) return null
+    const pos = ed.state.selection.from
+    const coords = ed.view.coordsAtPos(pos)
+    return { top: coords.bottom + window.scrollY + 6, left: coords.left + window.scrollX }
+  }
+
+  // ── Slash search ────────────────────────────────────────────────────────────
+  async function runSlashSearch(q: string) {
     if (slashDebounce.current) clearTimeout(slashDebounce.current)
     slashDebounce.current = setTimeout(async () => {
       const { createClient } = await import('@/lib/supabase/client')
       const sb = createClient()
-      const term = q.toLowerCase()
       const [{ data: sops }, { data: companies }] = await Promise.all([
-        sb.from('sops').select('id, title').ilike('title', `%${term}%`).limit(5),
-        sb.from('companies').select('id, name').ilike('name', `%${term}%`).limit(3),
+        sb.from('sops').select('id, title').ilike('title', `%${q}%`).limit(5),
+        sb.from('companies').select('id, name').ilike('name', `%${q}%`).limit(3),
       ])
-      const results: { label: string; href?: string; section: string }[] = [
-        ...((sops ?? []) as { id: string; title: string }[]).map(s => ({ label: `📄 ${s.title}`, href: `/sops/${s.id}`, section: 'SOPs' })),
-        ...((companies ?? []) as { id: string; name: string }[]).map(c => ({ label: `🏢 ${c.name}`, section: 'Companies' })),
-        { label: '📝 My Notes', href: '/notes', section: 'Pages' },
-        { label: '✅ My To-dos', href: '/todos', section: 'Pages' },
-        { label: '📚 My Courses', href: '/quizzes', section: 'Pages' },
-      ].filter(r => !term || r.label.toLowerCase().includes(term))
-      setSlashResults(results)
-    }, 200)
+      const pages = [
+        { label: '📝 Notes', text: 'Notes', href: '/notes' },
+        { label: '✅ To-dos', text: 'To-dos', href: '/todos' },
+        { label: '📚 My Courses', text: 'My Courses', href: '/quizzes' },
+      ].filter(p => !q || p.label.toLowerCase().includes(q.toLowerCase()))
+      setSlashResults([
+        ...((sops ?? []) as { id: string; title: string }[]).map(s => ({ label: `📄 ${s.title}`, text: s.title, href: `/sops/${s.id}` })),
+        ...((companies ?? []) as { id: string; name: string }[]).map(c => ({ label: `🏢 ${c.name}`, text: c.name, href: '' })),
+        ...pages,
+      ])
+    }, 150)
   }
 
-  function insertLink(item: { label: string; href?: string; action?: () => void }) {
-    setShowSlash(false)
-    if (item.action) { item.action(); return }
-    if (item.href) {
-      const text = item.label.replace(/^[^\s]+\s/, '') // strip emoji prefix
-      editor?.chain().focus().insertContent(`<a href="${item.href}">${text}</a> `).run()
-    }
+  // ── Insert slash result as a real hyperlink ──────────────────────────────────
+  function insertSlashLink(item: { text: string; href: string }) {
+    if (!editor || slashStartPos.current === null) return
+    setSlashOpen(false)
+    const from = slashStartPos.current           // position of the "/"
+    const to = editor.state.selection.from       // current cursor (end of typed query)
+    editor.chain().focus()
+      .deleteRange({ from, to })                 // remove "/query"
+      .insertContent(
+        item.href
+          ? `<a href="${item.href}" target="_blank" rel="noopener noreferrer">${item.text}</a> `
+          : `${item.text} `
+      )
+      .run()
+    slashStartPos.current = null
+  }
+
+  // ── Insert @mention ──────────────────────────────────────────────────────────
+  async function insertMention(p: Person) {
+    if (!editor || mentionStartPos.current === null) return
+    setMentionOpen(false)
+    const from = mentionStartPos.current
+    const to = editor.state.selection.from
+    editor.chain().focus()
+      .deleteRange({ from, to })
+      .insertContent(`<strong>@${p.full_name ?? 'User'}</strong> `)
+      .run()
+    // Notify the person
+    await save({ mentionedUserId: p.id })
+    mentionStartPos.current = null
   }
 
   // Tiptap editor
@@ -401,9 +439,9 @@ function NoteEditor({ note, people, currentUserId, isTeamNote, onBack, onChanged
     extensions: [
       StarterKit,
       Underline,
-      LinkExt.configure({ openOnClick: false }),
+      LinkExt.configure({ openOnClick: true }),
       Image.configure({ allowBase64: false }),
-      Placeholder.configure({ placeholder: 'Write anything… type / to search and link' }),
+      Placeholder.configure({ placeholder: 'Write anything… type / to link, @ to mention someone' }),
       TextStyle,
       Color,
     ],
@@ -412,37 +450,76 @@ function NoteEditor({ note, people, currentUserId, isTeamNote, onBack, onChanged
     immediatelyRender: false,
     onUpdate: ({ editor: e }) => {
       triggerSave({ content: e.getJSON(), body: e.getText().slice(0, 2000) })
+
+      // Detect "/" or "@" at cursor and open the right popover
+      const { from } = e.state.selection
+      const textBefore = e.state.doc.textBetween(Math.max(0, from - 30), from)
+
+      // Slash: find the last "/" that opens a command
+      const slashIdx = textBefore.lastIndexOf('/')
+      if (slashIdx >= 0 && !textBefore.slice(slashIdx).includes(' ')) {
+        const q = textBefore.slice(slashIdx + 1)
+        if (slashStartPos.current === null) slashStartPos.current = from - textBefore.length + slashIdx
+        const coords = getCursorCoords(e)
+        if (coords) setSlashPos(coords)
+        setSlashQuery(q); setSlashOpen(true); setMentionOpen(false)
+        runSlashSearch(q)
+        return
+      }
+      if (slashOpen) { setSlashOpen(false); slashStartPos.current = null }
+
+      // @mention: find the last "@"
+      const atIdx = textBefore.lastIndexOf('@')
+      if (atIdx >= 0 && !textBefore.slice(atIdx).includes(' ')) {
+        const q = textBefore.slice(atIdx + 1)
+        if (mentionStartPos.current === null) mentionStartPos.current = from - textBefore.length + atIdx
+        const coords = getCursorCoords(e)
+        if (coords) setMentionPos(coords)
+        setMentionQuery(q); setMentionOpen(true); setSlashOpen(false)
+        return
+      }
+      if (mentionOpen) { setMentionOpen(false); mentionStartPos.current = null }
     },
   })
 
   return (
     <div className="max-w-3xl mx-auto">
-      {/* Top bar */}
-      <div className="flex items-center justify-between mb-4">
-        <button onClick={onBack} className="text-sm text-gray-500 hover:text-navy-700 flex items-center gap-1.5"><ArrowLeft className="w-4 h-4" /> Notes</button>
-        <div className="flex items-center gap-2">
-          {isTeamNote && <span className="text-xs text-teal-600 bg-teal-50 border border-teal-200 rounded-full px-2.5 py-0.5 flex items-center gap-1"><Globe className="w-3 h-3" /> Team note</span>}
-          <span className="text-xs text-gray-400">{saveError ? <span className="text-red-500">{saveError}</span> : saved ? 'Saved' : 'Saving…'}</span>
-          {!readOnly && <button onClick={togglePin} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">{pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}</button>}
-          {/* Image upload */}
-          {!readOnly && <>
-            <button onClick={() => imgInputRef.current?.click()} title="Insert image" className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"><ImageIcon className="w-4 h-4" /></button>
-            <input ref={imgInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadImage(f); e.target.value = '' }} />
-          </>}
-          {!isTeamNote && note.mine && <button onClick={() => setShowShare(s => !s)} className={`p-1.5 rounded-lg hover:bg-gray-100 ${showShare ? 'text-teal-600 bg-teal-50' : 'text-gray-500'}`}><Share2 className="w-4 h-4" /></button>}
-          <button onClick={() => onDelete(note)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
-        </div>
+
+      {/* ── Top bar ───────────────────────────────────────────────────────── */}
+      <div className="sticky top-0 z-10 bg-white/90 backdrop-blur border border-gray-200 rounded-xl mb-4 px-4 py-2 flex items-center gap-3 shadow-sm">
+        {/* Back */}
+        <button onClick={onBack} className="flex items-center gap-1.5 text-sm font-medium text-gray-500 hover:text-navy-700 transition-colors flex-shrink-0">
+          <ArrowLeft className="w-4 h-4" /> Notes
+        </button>
+        <div className="h-4 w-px bg-gray-200 flex-shrink-0" />
+
+        {/* Auto-save indicator */}
+        <span className={`text-xs font-medium flex-shrink-0 ${saveError ? 'text-red-500' : saved ? 'text-teal-600' : 'text-amber-500'}`}>
+          {saveError ? '⚠ Save failed' : saved ? '✓ Saved' : '● Saving…'}
+        </span>
+
+        <div className="flex-1" />
+
+        {/* Actions */}
+        {isTeamNote && <span className="text-[11px] text-teal-600 bg-teal-50 border border-teal-200 rounded-full px-2 py-0.5 flex items-center gap-1 flex-shrink-0"><Globe className="w-3 h-3" /> Team</span>}
+        {!readOnly && <button onClick={togglePin} title={pinned ? 'Unpin' : 'Pin'} className={`p-1.5 rounded-lg hover:bg-gray-100 ${pinned ? 'text-amber-500' : 'text-gray-400'}`}>{pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}</button>}
+        {!readOnly && <>
+          <button onClick={() => imgInputRef.current?.click()} title="Insert image" className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><ImageIcon className="w-4 h-4" /></button>
+          <input ref={imgInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadImage(f); e.target.value = '' }} />
+        </>}
+        {!isTeamNote && note.mine && <button onClick={() => setShowShare(s => !s)} title="Share" className={`p-1.5 rounded-lg hover:bg-gray-100 ${showShare ? 'text-teal-600 bg-teal-50' : 'text-gray-400'}`}><Share2 className="w-4 h-4" /></button>}
+        <button onClick={() => onDelete(note)} title="Delete" className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
       </div>
 
       {showShare && !isTeamNote && note.mine && <SharePanel noteId={note.id} people={people} currentUserId={currentUserId} />}
 
-      {/* SOPs + companies */}
+      {/* ── SOP + Company links ───────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-4 mb-4">
         <div className="flex-1 min-w-[200px]">
           <p className="text-[10px] font-semibold text-gray-400 mb-1 flex items-center gap-1"><Link2 className="w-3 h-3" /> Linked SOPs</p>
           <GenericLinker
             value={linkedSops.map(s => ({ id: s.id, label: s.title }))}
-            icon={Link2} placeholder="Search SOPs to link…"
+            icon={Link2} placeholder="Search SOPs to link…" getHref={id => `/sops/${id}`}
             onSearch={async q => { const { createClient } = await import('@/lib/supabase/client'); const sb = createClient(); const { data } = await sb.from('sops').select('id, title').ilike('title', `%${q}%`).limit(8); return ((data ?? []) as { id: string; title: string }[]).map(s => ({ id: s.id, label: s.title })) }}
             onChange={items => saveSops(items.map(i => ({ id: i.id, title: i.label })))}
           />
@@ -458,47 +535,58 @@ function NoteEditor({ note, people, currentUserId, isTeamNote, onBack, onChanged
         </div>
       </div>
 
-      {/* Title */}
+      {/* ── Title ─────────────────────────────────────────────────────────── */}
       <input value={title} disabled={readOnly}
         onChange={e => { setTitle(e.target.value); triggerSave({ title: e.target.value }) }}
         placeholder="Note title"
         className="w-full text-2xl font-bold text-navy-700 border-0 outline-none mb-3 bg-transparent placeholder:text-gray-300" />
 
-      {/* Rich editor */}
+      {/* ── Rich editor ───────────────────────────────────────────────────── */}
       <div className="bg-white border border-gray-200 rounded-2xl p-6 relative"
         onKeyDown={e => {
-          if (!editor) return
-          if (e.key === '/') {
-            const sel = window.getSelection()
-            if (sel?.rangeCount) {
-              const r = sel.getRangeAt(0).getBoundingClientRect()
-              setSlashPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX })
-            }
-            setShowSlash(true); handleSlash('', slashPos)
-          } else if (showSlash) {
-            if (e.key === 'Escape') { setShowSlash(false); return }
-            setTimeout(() => {
-              const sel = window.getSelection(); if (!sel?.anchorNode) return
-              const text = sel.anchorNode.textContent ?? ''
-              const idx = text.lastIndexOf('/')
-              if (idx >= 0) handleSlash(text.slice(idx + 1), slashPos)
-            }, 0)
+          if (e.key === 'Escape' && (slashOpen || mentionOpen)) {
+            setSlashOpen(false); setMentionOpen(false)
+            slashStartPos.current = null; mentionStartPos.current = null
           }
         }}>
-        <EditorContent editor={editor} className="prose prose-sm max-w-none focus:outline-none min-h-[300px] [&_.ProseMirror]:outline-none [&_.ProseMirror_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)] [&_.ProseMirror_p.is-editor-empty:first-child::before]:text-gray-400 [&_.ProseMirror_p.is-editor-empty:first-child::before]:pointer-events-none" />
+        <EditorContent editor={editor} className="prose prose-sm max-w-none min-h-[300px] [&_.ProseMirror]:outline-none [&_.ProseMirror_a]:text-teal-600 [&_.ProseMirror_a]:underline [&_.ProseMirror_a]:cursor-pointer [&_.ProseMirror_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)] [&_.ProseMirror_p.is-editor-empty:first-child::before]:text-gray-400 [&_.ProseMirror_p.is-editor-empty:first-child::before]:pointer-events-none [&_.ProseMirror_p.is-editor-empty:first-child::before]:float-left [&_.ProseMirror_p.is-editor-empty:first-child::before]:h-0" />
         {readOnly && <p className="text-xs text-gray-400 italic mt-2 pt-2 border-t border-gray-100">Shared with you (view only).</p>}
 
-        {/* Slash command popover */}
-        {showSlash && slashResults.length > 0 && typeof document !== 'undefined' && (
-          <div className="fixed z-[9999] bg-white border border-gray-200 rounded-xl shadow-xl w-64 py-1.5 max-h-64 overflow-y-auto" style={{ top: slashPos.top, left: slashPos.left }}>
-            <p className="text-[10px] font-bold text-gray-400 uppercase px-3 pb-1">Search &amp; link</p>
-            {slashResults.map((r, i) => (
-              <button key={i} onClick={() => insertLink(r)} className="w-full text-left text-sm px-3 py-1.5 hover:bg-teal-50 text-navy-700 truncate">
-                {r.label}
-              </button>
-            ))}
-            <button onClick={() => setShowSlash(false)} className="w-full text-left text-[11px] text-gray-400 px-3 py-1 hover:bg-gray-50">Dismiss (Esc)</button>
-          </div>
+        {/* "/" popover — positioned at cursor via Tiptap coordsAtPos */}
+        {slashOpen && typeof document !== 'undefined' && (
+          <>
+            <div className="fixed inset-0 z-[9997]" onClick={() => { setSlashOpen(false); slashStartPos.current = null }} />
+            <div className="fixed z-[9999] bg-white border border-gray-200 rounded-xl shadow-xl w-72 py-1.5 max-h-72 overflow-y-auto" style={{ top: slashPos.top, left: slashPos.left }}>
+              <p className="text-[10px] font-bold text-gray-400 uppercase px-3 py-1">Search &amp; link · type to filter</p>
+              {slashResults.length === 0 && <p className="text-[11px] text-gray-400 px-3 py-2">No results for &quot;{slashQuery}&quot;</p>}
+              {slashResults.map((r, i) => (
+                <button key={i} onClick={() => insertSlashLink(r)}
+                  className="w-full text-left text-sm px-3 py-2 hover:bg-teal-50 text-navy-700 flex items-center gap-2">
+                  <span className="flex-1 truncate">{r.label}</span>
+                  {r.href && <ExternalLink className="w-3 h-3 text-gray-300 flex-shrink-0" />}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* "@" mention popover */}
+        {mentionOpen && filteredPeople.length > 0 && typeof document !== 'undefined' && (
+          <>
+            <div className="fixed inset-0 z-[9997]" onClick={() => { setMentionOpen(false); mentionStartPos.current = null }} />
+            <div className="fixed z-[9999] bg-white border border-gray-200 rounded-xl shadow-xl w-56 py-1.5 max-h-64 overflow-y-auto" style={{ top: mentionPos.top, left: mentionPos.left }}>
+              <p className="text-[10px] font-bold text-gray-400 uppercase px-3 py-1">Mention</p>
+              {filteredPeople.map(p => (
+                <button key={p.id} onClick={() => insertMention(p)}
+                  className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-teal-50 text-navy-700">
+                  <span className="w-6 h-6 rounded-full bg-teal-100 text-teal-700 text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+                    {(p.full_name ?? '?').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                  </span>
+                  <span className="flex-1 truncate">{p.full_name ?? 'User'}</span>
+                </button>
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -532,8 +620,9 @@ export function SharePanel({ noteId, people, currentUserId }: { noteId: string; 
 
 type LinkItem = { id: string; label: string }
 
-function GenericLinker({ value, icon: Icon, placeholder, onSearch, onChange }: {
+function GenericLinker({ value, icon: Icon, placeholder, getHref, onSearch, onChange }: {
   value: LinkItem[]; icon: typeof Link2; placeholder: string
+  getHref?: (id: string) => string
   onSearch: (q: string) => Promise<LinkItem[]>
   onChange: (items: LinkItem[]) => void
 }) {
@@ -557,21 +646,22 @@ function GenericLinker({ value, icon: Icon, placeholder, onSearch, onChange }: {
   function add(item: LinkItem) { onChange([...value, item]); setQ(''); setResults([]) }
   function remove(id: string) { onChange(value.filter(i => i.id !== id)) }
 
-  const sopHrefs = useMemo(() => new Map(value.filter(v => v.id).map(v => [v.id, `/sops/${v.id}`])), [value])
-
   return (
     <div className="space-y-1.5">
       {value.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {value.map(item => (
-            <span key={item.id} className="flex items-center gap-1 bg-teal-50 border border-teal-200 text-teal-700 text-[11px] rounded-lg px-2 py-1 max-w-[200px]">
-              <Icon className="w-3 h-3 flex-shrink-0" />
-              {sopHrefs.get(item.id)
-                ? <a href={sopHrefs.get(item.id)} target="_blank" rel="noopener noreferrer" className="truncate hover:underline flex items-center gap-0.5">{item.label} <ExternalLink className="w-2.5 h-2.5 flex-shrink-0" /></a>
-                : <span className="truncate">{item.label}</span>}
-              <button onClick={() => remove(item.id)} className="text-teal-400 hover:text-red-500 flex-shrink-0"><X className="w-3 h-3" /></button>
-            </span>
-          ))}
+          {value.map(item => {
+            const href = getHref?.(item.id)
+            return (
+              <span key={item.id} className="flex items-center gap-1 bg-teal-50 border border-teal-200 text-teal-700 text-[11px] rounded-lg px-2 py-1 max-w-[220px]">
+                <Icon className="w-3 h-3 flex-shrink-0" />
+                {href
+                  ? <a href={href} target="_blank" rel="noopener noreferrer" className="truncate hover:underline flex items-center gap-0.5">{item.label} <ExternalLink className="w-2.5 h-2.5 flex-shrink-0 opacity-60" /></a>
+                  : <span className="truncate">{item.label}</span>}
+                <button onClick={() => remove(item.id)} className="text-teal-400 hover:text-red-500 flex-shrink-0 ml-0.5"><X className="w-3 h-3" /></button>
+              </span>
+            )
+          })}
         </div>
       )}
       <div className="relative">
