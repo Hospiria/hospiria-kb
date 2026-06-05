@@ -8,7 +8,7 @@ import { RoleBadge } from '@/components/ui/StatusBadge'
 import {
   LayoutDashboard, Users, Building2, Upload,
   BookOpen, Users as TeamIcon, PlugZap, ListChecks, GraduationCap,
-  Briefcase, Layers, ChevronDown, Search, Library, Tag, Brain, NotebookPen, CircleDot,
+  Briefcase, Layers, ChevronDown, Search, Library, Tag, Brain, NotebookPen, CircleDot, Bell,
 } from 'lucide-react'
 import { useState } from 'react'
 import { FeatureKey, Perm } from '@/lib/permissions'
@@ -47,6 +47,7 @@ export function Sidebar({ profile, teamName, teams, companies, platforms, perms 
     { label: 'Manage SOPs', href: '/admin/sops', icon: ListChecks, feature: 'sops', level: 'edit' },
     { label: 'Auto-tag SOPs', href: '/admin/auto-tag', icon: Tag, feature: 'autotag', level: 'edit' },
     { label: 'AI Training', href: '/admin/ai-training', icon: Brain, feature: 'ai_training', level: 'view' },
+    { label: 'Notifications', href: '/admin/notifications', icon: Bell, feature: 'notifications', level: 'view' },
     { label: 'Manage Quizzes', href: '/admin/quizzes', icon: GraduationCap, feature: 'quizzes', level: 'edit' },
     { label: 'To-do Statuses', href: '/admin/statuses', icon: CircleDot, feature: 'notes', level: 'edit' },
   ]

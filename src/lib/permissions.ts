@@ -21,6 +21,7 @@ export type FeatureKey =
   | 'import_clickup'
   | 'autotag'
   | 'ai_training'
+  | 'notifications'
 
 export type FeatureGroup = 'Core' | 'SOPs' | 'Learning' | 'Admin'
 
@@ -59,6 +60,7 @@ export const FEATURES: FeatureDef[] = [
   { key: 'import_clickup', label: 'Import from ClickUp', group: 'Admin', hasView: false, hasEdit: true, editHint: 'Run ClickUp imports' },
   { key: 'autotag', label: 'Auto-tag SOPs', group: 'Admin', hasView: false, hasEdit: true, editHint: 'Run & apply auto-tagging' },
   { key: 'ai_training', label: 'AI Training', group: 'Admin', hasView: true, hasEdit: true, viewHint: 'View bot config', editHint: 'Edit behaviour & teach from chats' },
+  { key: 'notifications', label: 'Notification Settings', group: 'Admin', hasView: true, hasEdit: true, viewHint: 'View notification settings', editHint: 'Enable/disable emails and control who receives them' },
 ]
 
 export const FEATURE_KEYS = FEATURES.map(f => f.key)
@@ -88,7 +90,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<Role, Partial<Record<FeatureKey, P
   super_admin: {
     dashboard: VIEW, chat: VIEW, notes: ALL, sop_notes: ALL, sops: ALL, approve_sops: ALL, quizzes: ALL,
     users: ALL, teams: ALL, companies: ALL, platforms: ALL,
-    import_sops: ALL, import_clickup: ALL, autotag: ALL, ai_training: ALL,
+    import_sops: ALL, import_clickup: ALL, autotag: ALL, ai_training: ALL, notifications: ALL,
   },
   approver: {
     dashboard: VIEW, chat: VIEW, notes: ALL, sop_notes: ALL, sops: ALL, approve_sops: ALL, quizzes: VIEW,

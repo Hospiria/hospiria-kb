@@ -55,6 +55,16 @@ export async function POST(request: Request) {
   const { sopId, quizEnabled = true, recipientMode = 'teams', specificUserIds = [] } = body
   if (!sopId) return NextResponse.json({ error: 'Missing sopId' }, { status: 400 })
 
+  // Read notification settings so admin toggles are respected
+  const { data: notifSettings } = await adminClient
+    .from('notification_settings')
+    .select('event, email_enabled, teams_enabled')
+    .in('event', ['quiz_assigned', 'sop_published'])
+  const settingFor = (evt: string) => notifSettings?.find(s => s.event === evt)
+  const quizEmailEnabled  = settingFor('quiz_assigned')?.email_enabled  ?? true
+  const quizTeamsEnabled  = settingFor('quiz_assigned')?.teams_enabled  ?? true
+  const sopTeamsEnabled   = settingFor('sop_published')?.teams_enabled  ?? true
+
   // If quiz is disabled, just send the Teams published notification and exit early
   if (!quizEnabled) {
     const [{ data: sopMeta }, { data: teamRows }] = await Promise.all([
@@ -67,12 +77,14 @@ export async function POST(request: Request) {
       const authorName = (author as { full_name?: string | null } | null)?.full_name ?? 'Unknown'
       const teamIds = (teamRows ?? []).map((r: { team_id: string }) => r.team_id)
       const webhookUrls = await getTeamWebhooks(adminClient, teamIds)
-      if (webhookUrls.length > 0) {
-        for (const url of webhookUrls) {
-          await sendSopPublishedNotification({ sopId, sopTitle: sopMeta.title, authorName, teamWebhookUrl: url })
+      if (sopTeamsEnabled) {
+        if (webhookUrls.length > 0) {
+          for (const url of webhookUrls) {
+            await sendSopPublishedNotification({ sopId, sopTitle: sopMeta.title, authorName, teamWebhookUrl: url })
+          }
+        } else {
+          await sendSopPublishedNotification({ sopId, sopTitle: sopMeta.title, authorName })
         }
-      } else {
-        await sendSopPublishedNotification({ sopId, sopTitle: sopMeta.title, authorName })
       }
     }
     return NextResponse.json({ success: true, quizId: null, enrolled: 0, skipped: 'quiz disabled' })
@@ -263,39 +275,44 @@ Rules:
       await adminClient.from('notifications').insert(inAppNotifications)
     }
 
-    // ── 5. Send emails to all users ──────────────────────────────────
-    for (const p of allProfiles) {
-      const auth = emailMap.get(p.id)
-      if (auth?.email) {
-        await sendQuizAssignedEmail({
-          to: auth.email,
-          name: p.full_name ?? auth.name ?? 'there',
-          sopTitle: sop.title,
-          dueDate,
-        })
+    // ── 5. Send emails to all users (gated by notification settings) ─────
+    if (quizEmailEnabled) {
+      for (const p of allProfiles) {
+        const auth = emailMap.get(p.id)
+        if (auth?.email) {
+          await sendQuizAssignedEmail({
+            to: auth.email,
+            name: p.full_name ?? auth.name ?? 'there',
+            sopTitle: sop.title,
+            dueDate,
+          })
+        }
       }
     }
   }
 
-  // ── 6. Send Teams notifications — one per audience team ──────────────
+  // ── 6. Send Teams notifications (gated by notification settings) ──────
   const { data: sopTeamRows2 } = await adminClient
     .from('sop_teams').select('team_id').eq('sop_id', sopId)
   const sopTeamIds = (sopTeamRows2 ?? []).map((r: { team_id: string }) => r.team_id)
   const webhookUrls = await getTeamWebhooks(adminClient, sopTeamIds)
   const authorName2 = (sop as { profiles?: { full_name: string | null } }).profiles?.full_name ?? 'Unknown'
 
-  if (webhookUrls.length === 0) {
-    if (quizEnabled) {
-      await sendTeamsNotification({ sopTitle: sop.title, dueDate })
-    } else {
-      await sendSopPublishedNotification({ sopId, sopTitle: sop.title, authorName: authorName2 })
-    }
-  } else {
-    for (const url of webhookUrls) {
+  const shouldTeams = quizEnabled ? quizTeamsEnabled : sopTeamsEnabled
+  if (shouldTeams) {
+    if (webhookUrls.length === 0) {
       if (quizEnabled) {
-        await sendTeamsNotification({ sopTitle: sop.title, dueDate, teamWebhookUrl: url })
+        await sendTeamsNotification({ sopTitle: sop.title, dueDate })
       } else {
-        await sendSopPublishedNotification({ sopId, sopTitle: sop.title, authorName: authorName2, teamWebhookUrl: url })
+        await sendSopPublishedNotification({ sopId, sopTitle: sop.title, authorName: authorName2 })
+      }
+    } else {
+      for (const url of webhookUrls) {
+        if (quizEnabled) {
+          await sendTeamsNotification({ sopTitle: sop.title, dueDate, teamWebhookUrl: url })
+        } else {
+          await sendSopPublishedNotification({ sopId, sopTitle: sop.title, authorName: authorName2, teamWebhookUrl: url })
+        }
       }
     }
   }

@@ -13,11 +13,19 @@ export async function GET(request: Request) {
 
   const adminClient = createAdminClient()
 
-  // Find enrollments due in exactly 3-4 days that haven't been reminded yet
-  // We check for a 'quiz_reminder' notification to avoid duplicate reminders
+  // Read notification settings for quiz_reminder
+  const { data: settingsRow } = await adminClient
+    .from('notification_settings')
+    .select('email_enabled, teams_enabled, reminder_days_before')
+    .eq('event', 'quiz_reminder')
+    .single()
+  const emailEnabled = settingsRow?.email_enabled ?? true
+  const reminderDays = settingsRow?.reminder_days_before ?? 3
+
+  // Find enrollments due in the reminder window (reminder_days_before to +1 day after)
   const now = new Date()
   const reminderWindowStart = new Date(now)
-  reminderWindowStart.setDate(now.getDate() + 3)
+  reminderWindowStart.setDate(now.getDate() + reminderDays)
   const reminderWindowEnd = new Date(now)
   reminderWindowEnd.setDate(now.getDate() + 4)
 
@@ -81,8 +89,8 @@ export async function GET(request: Request) {
       link: `/quizzes`,
     })
 
-    // Email reminder
-    if (email) {
+    // Email reminder — only if enabled in notification settings
+    if (emailEnabled && email) {
       await sendQuizReminderEmail({
         to: email,
         name,
