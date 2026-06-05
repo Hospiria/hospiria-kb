@@ -76,7 +76,11 @@ export function SopEditor({
   const [linkSearching, setLinkSearching] = useState(false)
   const linkDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Quiz settings — default ON for new SOPs, OFF for edits
+  // Track the real SOP ID — starts from the prop, but after the first draft-save
+  // of a NEW SOP we store the newly created ID here so subsequent saves UPDATE
+  // rather than INSERT again (which was causing duplicates).
+  const [currentSopId, setCurrentSopId] = useState<string | undefined>(sopId)
+
   const isNew = !sopId
   const [autoQuiz, setAutoQuiz] = useState(isNew)
   const [quizRecipientMode, setQuizRecipientMode] = useState<'teams' | 'specific'>('teams')
@@ -170,15 +174,16 @@ export function SopEditor({
       const content = editor.getJSON() as TiptapContent
       const status = mode === 'publish' ? 'live' : mode === 'submit' ? 'submitted' : 'draft'
 
-      let id = sopId
-      if (sopId) {
+      let id = currentSopId
+      if (currentSopId) {
+        // Existing SOP — always UPDATE
         const { error: updateError } = await supabase.from('sops').update({
           title,
           content,
           category_id: categoryId || null,
           status,
           updated_at: new Date().toISOString(),
-        }).eq('id', sopId)
+        }).eq('id', currentSopId)
         if (updateError) {
           setMessage(
             updateError.code === '42501'
@@ -188,6 +193,7 @@ export function SopEditor({
           return
         }
       } else {
+        // Brand-new SOP — INSERT once, then keep the ID so future saves UPDATE
         const { data, error: insertError } = await supabase.from('sops').insert({
           title,
           content,
@@ -200,6 +206,8 @@ export function SopEditor({
           return
         }
         id = data?.id
+        // Store the new ID so subsequent saves (including later drafts) UPDATE this row
+        if (id) setCurrentSopId(id)
       }
 
       if (id) {
@@ -287,7 +295,12 @@ export function SopEditor({
         }
 
         if (mode === 'draft') {
-          // Flash "Saved ✓" without navigating away
+          // Flash "Saved ✓" without navigating away.
+          // If this was a brand-new SOP, silently update the URL so a page
+          // refresh goes to the edit page for this SOP (not a new blank one).
+          if (!sopId && id) {
+            router.replace(`/sops/${id}/edit`, { scroll: false })
+          }
           setSavedOk(true)
           setTimeout(() => setSavedOk(false), 3000)
           return
