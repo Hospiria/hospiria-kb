@@ -10,6 +10,7 @@ interface TodoRow {
   priority: 'low' | 'medium' | 'high'; status: 'open' | 'done'
   updated_at: string; created_at: string
   deleted_at: string | null; deleted_by: string | null
+  list_id: string | null; position: number
 }
 
 export async function GET(request: Request) {
@@ -28,13 +29,17 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const space = searchParams.get('space')
   const teamId = searchParams.get('teamId')
+  const listId = searchParams.get('listId')
   const trash = searchParams.get('trash') === 'true'
 
+  // Order: open tasks first, then by manual position, then newest created first.
+  // (New tasks default position 0 + newest created_at → they appear at the TOP,
+  //  not pushed to the bottom by due-date sorting like before.)
   let query = supabase
     .from('todos')
     .select('*')
     .order('is_done', { ascending: true })
-    .order('due_date', { ascending: true, nullsFirst: false })
+    .order('position', { ascending: true })
     .order('created_at', { ascending: false })
 
   if (space === 'personal') {
@@ -46,6 +51,8 @@ export async function GET(request: Request) {
   } else if (teamId) {
     query = query.eq('team_id', teamId)
   }
+
+  if (listId) query = query.eq('list_id', listId)
 
   if (trash) query = query.not('deleted_at', 'is', null)
   else query = query.is('deleted_at', null)
@@ -110,6 +117,9 @@ export async function POST(request: Request) {
   if (recurrenceDayOfWeek !== null) insert.recurrence_day_of_week = recurrenceDayOfWeek
   if (recurrenceWeekdaysOnly) insert.recurrence_weekdays_only = true
   if (b.statusName) insert.status = b.statusName.toString()
+  if (b.listId) insert.list_id = b.listId
+  // New tasks sort to the TOP: negative position beats the default 0 of existing rows.
+  insert.position = -Date.now() % 2000000000
   const { data, error } = await supabase.from('todos').insert(insert).select('*').single()
   if (error || !data) return NextResponse.json({ error: error?.message ?? 'Create failed' }, { status: 500 })
 

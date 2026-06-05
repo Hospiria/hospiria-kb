@@ -24,6 +24,12 @@ export interface Todo {
   deleted_at: string | null; deleted_by: string | null; deletedByName: string | null
   mine: boolean; assignedToMe: boolean; ownerName: string | null
   assigneeName: string | null; teamName: string | null
+  list_id: string | null; position: number
+}
+
+export interface TodoList {
+  id: string; owner_id: string; team_id: string | null
+  name: string; color: string; icon: string | null; position: number
 }
 
 export type Space = 'personal' | string

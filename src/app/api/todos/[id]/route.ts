@@ -24,6 +24,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   if (b.priority !== undefined && ['low', 'medium', 'high'].includes(b.priority)) patch.priority = b.priority
   if (b.assigneeId !== undefined) patch.assignee_id = b.assigneeId || null
   if (b.teamId !== undefined) patch.team_id = b.teamId || null
+  if (b.listId !== undefined) patch.list_id = b.listId || null
   if (b.status !== undefined) {
     patch.status = b.status.toString()
     if (b.isDone !== undefined) {
