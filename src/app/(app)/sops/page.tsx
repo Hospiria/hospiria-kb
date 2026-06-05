@@ -104,13 +104,32 @@ export default async function SopsPage({ searchParams }: { searchParams: SearchP
       : query.in('id', ['00000000-0000-0000-0000-000000000000']) // no results sentinel
   }
 
-  // Role-based visibility using effective profile
+  // Role-based visibility + team scoping (defence-in-depth alongside RLS)
+  const userTeamId = profile.primary_team_id ?? null
   if (profile.role === 'agent') {
     query = query.eq('status', 'live')
+    // If no explicit team filter from URL and user has a team, scope to their team only
+    if (!teamId && userTeamId) {
+      query = query.eq('sop_teams.team_id', userTeamId)
+    }
   } else if (profile.role === 'junior_team_leader') {
     query = query.or(`author_id.eq.${effectiveUserId},status.eq.live`)
+    if (!teamId && userTeamId) {
+      // Show own drafts + live SOPs for their team only
+      query = query.eq('sop_teams.team_id', userTeamId)
+    }
+  } else if (profile.role === 'team_leader') {
+    // team_leader scoped to their team only (own SOPs of any status, plus team live/submitted)
+    if (!teamId && userTeamId) {
+      query = query.or(`author_id.eq.${effectiveUserId},sop_teams.team_id.eq.${userTeamId}`)
+    }
+  } else if (profile.role === 'approver') {
+    // approver scoped to their team only — can see submitted + live for their team
+    if (!teamId && userTeamId) {
+      query = query.eq('sop_teams.team_id', userTeamId)
+    }
   }
-  // team_leader, approver, super_admin see everything (no filter)
+  // super_admin sees everything across all teams
 
   if (searchParams.status) query = query.eq('status', searchParams.status)
   if (searchParams.search) {

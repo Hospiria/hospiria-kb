@@ -86,13 +86,21 @@ export default async function DashboardPage() {
       .select('id, status, score, due_date, quizzes(id, title, sops(id, title))')
       .eq('user_id', effectiveUserId).in('status', ['pending', 'failed'])
       .order('due_date', { ascending: true }).limit(8),
-    canApprove
-      ? supabase.from('sops').select('id, title, updated_at, profiles(full_name), categories(name)')
-          .eq('status', 'submitted').order('updated_at', { ascending: true }).limit(10)
+    // SOPs pending approval — only those in the user's own team(s)
+    canApprove && teamId
+      ? supabase.from('sops')
+          .select('id, title, updated_at, profiles(full_name), categories(name), sop_teams!inner(team_id)')
+          .eq('status', 'submitted')
+          .eq('sop_teams.team_id', teamId)
+          .order('updated_at', { ascending: true }).limit(10)
       : Promise.resolve({ data: [] }),
+    // Recent live SOPs — only for the user's own team
     teamId
-      ? supabase.from('sops').select('id, title, status, updated_at, profiles(full_name)')
-          .eq('status', 'live').order('updated_at', { ascending: false }).limit(6)
+      ? supabase.from('sops')
+          .select('id, title, status, updated_at, profiles(full_name), sop_teams!inner(team_id)')
+          .eq('status', 'live')
+          .eq('sop_teams.team_id', teamId)
+          .order('updated_at', { ascending: false }).limit(6)
       : Promise.resolve({ data: [] }),
     ['team_leader', 'junior_team_leader', 'approver'].includes(role)
       ? supabase.from('sops').select('id, title, status, updated_at, categories(name)')
