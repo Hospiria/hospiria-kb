@@ -24,6 +24,7 @@ export interface Todo {
   deleted_at: string | null; deleted_by: string | null; deletedByName: string | null
   mine: boolean; assignedToMe: boolean; ownerName: string | null
   assigneeName: string | null; teamName: string | null
+  assignees?: { id: string; full_name: string | null }[]
   list_id: string | null; position: number
   commentCount?: number
 }

@@ -120,18 +120,20 @@ export function TodosClient({ currentUserId, people, myTeams }: {
   // ── optimistic insert of a newly-created task (no full reload) ────────────
   const nameById = useMemo(() => new Map(people.map(p => [p.id, p.full_name])), [people])
   function handleCreated(raw: Record<string, unknown>) {
-    const r = raw as Partial<Todo> & { assignee_id?: string | null; team_id?: string | null }
+    const r = raw as Partial<Todo> & { assignee_id?: string | null; team_id?: string | null; assigneeIds?: string[] }
+    const ids = Array.isArray(r.assigneeIds) ? r.assigneeIds : (r.assignee_id ? [r.assignee_id] : [])
+    const assignees = ids.map(id => ({ id, full_name: nameById.get(id) ?? null }))
     const enriched: Todo = {
       id: String(r.id), owner_id: String(r.owner_id ?? currentUserId),
-      assignee_id: r.assignee_id ?? null, team_id: r.team_id ?? null,
+      assignee_id: ids[0] ?? null, team_id: r.team_id ?? null,
       title: String(r.title ?? ''), detail: r.detail ?? null, due_date: r.due_date ?? null,
       priority: (r.priority as Todo['priority']) ?? 'medium', status: String(r.status ?? 'open'),
       is_done: !!r.is_done, recurrence: (r.recurrence as Todo['recurrence']) ?? 'none',
       recurrence_parent_id: r.recurrence_parent_id ?? null, is_carry: false,
       recurrence_day_of_week: r.recurrence_day_of_week ?? null, recurrence_weekdays_only: !!r.recurrence_weekdays_only,
       deleted_at: null, deleted_by: null, deletedByName: null,
-      mine: true, assignedToMe: (r.assignee_id ?? null) === currentUserId,
-      ownerName: 'You', assigneeName: r.assignee_id ? (nameById.get(r.assignee_id) ?? null) : null,
+      mine: true, assignedToMe: ids.includes(currentUserId),
+      ownerName: 'You', assignees, assigneeName: assignees[0]?.full_name ?? null,
       teamName: r.team_id ? (myTeams.find(t => t.id === r.team_id)?.name ?? null) : null,
       list_id: r.list_id ?? null, position: (r.position as number) ?? 0,
     }
@@ -140,7 +142,7 @@ export function TodosClient({ currentUserId, people, myTeams }: {
 
   // ── mutations ─────────────────────────────────────────────────────────────
   async function patch(id: string, body: Record<string, unknown>) {
-    setTodos(prev => prev.map(t => t.id === id ? applyPatch(t, body) : t))
+    setTodos(prev => prev.map(t => t.id === id ? applyPatch(t, body, nameById) : t))
     await fetch(`/api/todos/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {})
   }
   async function toggleDone(t: Todo) {
@@ -296,8 +298,8 @@ export function TodosClient({ currentUserId, people, myTeams }: {
   )
 }
 
-function applyPatch(t: Todo, b: Record<string, unknown>): Todo {
-  return {
+function applyPatch(t: Todo, b: Record<string, unknown>, peopleById?: Map<string, string | null>): Todo {
+  const next: Todo = {
     ...t,
     priority: (b.priority as Todo['priority']) ?? t.priority,
     due_date: b.dueDate !== undefined ? (b.dueDate as string | null) : t.due_date,
@@ -308,6 +310,12 @@ function applyPatch(t: Todo, b: Record<string, unknown>): Todo {
     is_done: b.isDone !== undefined ? !!b.isDone : t.is_done,
     title: (b.title as string) ?? t.title,
   }
+  if (Array.isArray(b.assigneeIds)) {
+    const ids = b.assigneeIds as string[]
+    next.assignees = ids.map(id => ({ id, full_name: peopleById?.get(id) ?? null }))
+    next.assignee_id = ids[0] ?? null
+  }
+  return next
 }
 
 // ─── Sidebar (smart views + custom lists) ─────────────────────────────────────
@@ -433,7 +441,7 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onC
   const [detail, setDetail] = useState('')
   const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('medium')
   const [dueDate, setDueDate] = useState('')
-  const [assigneeId, setAssigneeId] = useState('')
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([])
   const [status, setStatus] = useState(defaultStatus)
   const [recurrence, setRecurrence] = useState<'none' | 'daily' | 'weekly'>(defaults.recurrence)
   const [dayOfWeek, setDayOfWeek] = useState(1)
@@ -444,7 +452,7 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onC
   useEffect(() => { setRecurrence(defaults.recurrence); setListId(defaults.listId ?? '') }, [defaults.recurrence, defaults.listId])
 
   function reset() {
-    setTitle(''); setDetail(''); setDueDate(''); setAssigneeId(''); setPriority('medium')
+    setTitle(''); setDetail(''); setDueDate(''); setAssigneeIds([]); setPriority('medium')
     setStatus(defaultStatus); setRecurrence(defaults.recurrence); setDayOfWeek(1); setWeekdaysOnly(false)
     setListId(defaults.listId ?? '')
   }
@@ -492,7 +500,7 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onC
           body: JSON.stringify({
             title: t, detail: detail || null, priority,
             dueDate: dueDate || defaults.dueDate || null,
-            assigneeId: assigneeId || null, teamId: currentTeamId,
+            assigneeIds, teamId: currentTeamId,
             listId: listId || null,
             recurrence,
             recurrenceDayOfWeek: recurrence === 'weekly' ? dayOfWeek : null,
@@ -582,11 +590,11 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onC
             <label className="text-[10px] font-semibold text-gray-400">Due date
               <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full mt-0.5 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white" />
             </label>
-            <label className="text-[10px] font-semibold text-gray-400">Assign to
-              <select value={assigneeId} onChange={e => setAssigneeId(e.target.value)} className="w-full mt-0.5 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
-                <option value="">Nobody</option>{people.map(p => <option key={p.id} value={p.id}>{p.full_name ?? 'User'}</option>)}
-              </select>
-            </label>
+            <div className="text-[10px] font-semibold text-gray-400">Assign to
+              <div className="mt-1 border border-gray-200 rounded-lg px-2 py-1 bg-white flex items-center min-h-[30px]">
+                <AssigneePicker value={assigneeIds} people={people} onChange={setAssigneeIds} />
+              </div>
+            </div>
             <label className="text-[10px] font-semibold text-gray-400">List
               <select value={listId} onChange={e => setListId(e.target.value)} className="w-full mt-0.5 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
                 <option value="">No list</option>{lists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
@@ -722,8 +730,14 @@ function TaskRow({ t, people, teams, statuses, lists, expanded, onToggleDone, on
         <div className="flex justify-center"><PriorityPicker value={t.priority} onChange={p => onPatch({ priority: p })} /></div>
         {/* due */}
         <div className="flex justify-end pr-1"><DueCell value={t.due_date} overdue={!!isOverdue} label={dueLabel} onChange={d => onPatch({ dueDate: d })} /></div>
-        {/* assignee — click to change */}
-        <div className="min-w-0"><AssigneePicker value={t.assignee_id} people={people} onChange={id => onPatch({ assigneeId: id })} /></div>
+        {/* assignees — click to change (multi) */}
+        <div className="min-w-0">
+          <AssigneePicker
+            value={(t.assignees && t.assignees.length ? t.assignees.map(a => a.id) : (t.assignee_id ? [t.assignee_id] : []))}
+            people={people}
+            onChange={ids => onPatch({ assigneeIds: ids })}
+          />
+        </div>
         {/* comments indicator */}
         <button onClick={onOpenComments} title={comments ? `${comments} comment${comments !== 1 ? 's' : ''}` : 'Add a comment'}
           className={`flex items-center justify-center gap-0.5 ${comments ? 'text-teal-600' : 'text-gray-200 group-hover:text-gray-400'}`}>
@@ -770,50 +784,69 @@ function initials(name: string | null) {
   return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || '?'
 }
 
-function AssigneePicker({ value, people, onChange }: { value: string | null; people: Person[]; onChange: (id: string | null) => void }) {
+function AssigneePicker({ value, people, onChange }: { value: string[]; people: Person[]; onChange: (ids: string[]) => void }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const btnRef = useRef<HTMLButtonElement>(null)
   const [pos, setPos] = useState({ top: 0, left: 0 })
-  const current = people.find(p => p.id === value) ?? null
+  const selected = people.filter(p => value.includes(p.id))
   function toggle() {
     if (!open && btnRef.current) {
       const r = btnRef.current.getBoundingClientRect()
-      setPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX - 100 })
+      setPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX - 120 })
     }
     setOpen(o => !o); setQ('')
+  }
+  function toggleUser(id: string) {
+    onChange(value.includes(id) ? value.filter(v => v !== id) : [...value, id])
   }
   const filtered = q ? people.filter(p => (p.full_name ?? '').toLowerCase().includes(q.toLowerCase())) : people
   return (
     <>
-      <button ref={btnRef} onClick={toggle} title={current?.full_name ?? 'Assign'} className="flex items-center gap-1 hover:bg-gray-100 rounded-full px-0.5 py-0.5 max-w-full">
-        {current ? (
-          <>
-            <span className="w-5 h-5 rounded-full bg-teal-100 text-teal-700 text-[9px] font-bold flex items-center justify-center flex-shrink-0">{initials(current.full_name)}</span>
-            <span className="text-[11px] text-gray-600 truncate">{(current.full_name ?? 'User').split(' ')[0]}</span>
-          </>
-        ) : (
+      <button ref={btnRef} onClick={toggle} title={selected.length ? selected.map(s => s.full_name).join(', ') : 'Assign'} className="flex items-center hover:bg-gray-100 rounded-full px-0.5 py-0.5 max-w-full">
+        {selected.length === 0 && (
           <span className="w-5 h-5 rounded-full border border-dashed border-gray-300 text-gray-300 text-[11px] flex items-center justify-center flex-shrink-0">+</span>
+        )}
+        {selected.length === 1 && (
+          <span className="flex items-center gap-1">
+            <span className="w-5 h-5 rounded-full bg-teal-100 text-teal-700 text-[9px] font-bold flex items-center justify-center flex-shrink-0">{initials(selected[0].full_name)}</span>
+            <span className="text-[11px] text-gray-600 truncate">{(selected[0].full_name ?? 'User').split(' ')[0]}</span>
+          </span>
+        )}
+        {selected.length > 1 && (
+          <span className="flex items-center">
+            {selected.slice(0, 3).map((s, i) => (
+              <span key={s.id} className={`w-5 h-5 rounded-full bg-teal-100 text-teal-700 text-[9px] font-bold flex items-center justify-center ring-1 ring-white ${i > 0 ? '-ml-1.5' : ''}`}>{initials(s.full_name)}</span>
+            ))}
+            {selected.length > 3 && <span className="text-[10px] text-gray-400 ml-1">+{selected.length - 3}</span>}
+          </span>
         )}
       </button>
       {open && typeof document !== 'undefined' && createPortal(
         <>
           <div className="fixed inset-0 z-[9998]" onClick={() => setOpen(false)} />
-          <div className="absolute z-[9999] bg-white border border-gray-200 rounded-xl shadow-xl w-52 py-1.5" style={{ top: pos.top, left: pos.left }}>
-            <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search people…"
-              className="w-[calc(100%-12px)] mx-1.5 mb-1 text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+          <div className="absolute z-[9999] bg-white border border-gray-200 rounded-xl shadow-xl w-56 py-1.5" style={{ top: pos.top, left: pos.left }}>
+            <div className="flex items-center justify-between px-2 pb-1">
+              <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search people…"
+                className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+            </div>
+            {value.length > 0 && (
+              <button onClick={() => onChange([])} className="w-full text-left text-[11px] text-gray-400 hover:text-red-500 px-3 py-1">Clear all</button>
+            )}
             <div className="max-h-52 overflow-y-auto">
-              <button onClick={() => { onChange(null); setOpen(false) }} className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 text-gray-500">
-                <span className="w-5 h-5 rounded-full border border-dashed border-gray-300 text-gray-300 text-xs flex items-center justify-center">–</span> Unassigned
-                {!value && <Check className="w-3 h-3 text-teal-500 ml-auto" />}
-              </button>
-              {filtered.map(p => (
-                <button key={p.id} onClick={() => { onChange(p.id); setOpen(false) }} className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50">
-                  <span className="w-5 h-5 rounded-full bg-teal-100 text-teal-700 text-[9px] font-bold flex items-center justify-center">{initials(p.full_name)}</span>
-                  <span className="flex-1 truncate">{p.full_name ?? 'User'}</span>
-                  {value === p.id && <Check className="w-3 h-3 text-teal-500" />}
-                </button>
-              ))}
+              {filtered.map(p => {
+                const on = value.includes(p.id)
+                return (
+                  <button key={p.id} onClick={() => toggleUser(p.id)} className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50">
+                    <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${on ? 'bg-teal-500 border-teal-500' : 'border-gray-300'}`}>{on && <Check className="w-2.5 h-2.5 text-white" />}</span>
+                    <span className="w-5 h-5 rounded-full bg-teal-100 text-teal-700 text-[9px] font-bold flex items-center justify-center">{initials(p.full_name)}</span>
+                    <span className="flex-1 truncate">{p.full_name ?? 'User'}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="px-2 pt-1 border-t border-gray-100 mt-1">
+              <button onClick={() => setOpen(false)} className="w-full text-center text-[11px] text-teal-600 font-medium py-1 hover:bg-teal-50 rounded">Done</button>
             </div>
           </div>
         </>,

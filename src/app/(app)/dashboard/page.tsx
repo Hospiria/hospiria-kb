@@ -68,6 +68,12 @@ export default async function DashboardPage() {
   // ── Shared data for all other roles ──────────────────────────────────
   const canApprove = ['team_leader', 'approver'].includes(role)
 
+  // Task IDs where the user is one of several assignees (multi-assignee support)
+  const { data: assignedRows } = await db.from('todo_assignees').select('todo_id').eq('user_id', effectiveUserId)
+  const assignedTaskIds = (assignedRows ?? []).map((r: { todo_id: string }) => r.todo_id)
+  const taskOrFilter = `owner_id.eq.${effectiveUserId},assignee_id.eq.${effectiveUserId}` +
+    (assignedTaskIds.length ? `,id.in.(${assignedTaskIds.join(',')})` : '')
+
   const [
     { data: myTasks },
     { data: myNotes },
@@ -77,7 +83,7 @@ export default async function DashboardPage() {
     { data: mySops },
   ] = await Promise.all([
     supabase.from('todos').select('*')
-      .or(`owner_id.eq.${effectiveUserId},assignee_id.eq.${effectiveUserId}`)
+      .or(taskOrFilter)
       .is('deleted_at', null).eq('is_done', false)
       .order('due_date', { ascending: true, nullsFirst: false }).limit(50),
     supabase.from('notes').select('id, title, body, pinned, updated_at, sop_id')

@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { requireFeature } from '@/lib/permissions-guard'
 import { NextResponse } from 'next/server'
 
@@ -17,12 +17,17 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     return NextResponse.json({ success: true })
   }
 
+  // Multiple assignees — replace the join set and keep assignee_id as the primary
+  const multiAssign = Array.isArray(b.assigneeIds)
+  const assigneeIds: string[] = multiAssign ? b.assigneeIds.filter(Boolean) : []
+
   const patch: Record<string, unknown> = {}
   if (b.title !== undefined) patch.title = b.title.toString().trim().slice(0, 300)
   if (b.detail !== undefined) patch.detail = b.detail ? b.detail.toString() : null
   if (b.dueDate !== undefined) patch.due_date = b.dueDate || null
   if (b.priority !== undefined && ['low', 'medium', 'high'].includes(b.priority)) patch.priority = b.priority
   if (b.assigneeId !== undefined) patch.assignee_id = b.assigneeId || null
+  if (multiAssign) patch.assignee_id = assigneeIds[0] || null
   if (b.teamId !== undefined) patch.team_id = b.teamId || null
   if (b.listId !== undefined) patch.list_id = b.listId || null
   if (b.status !== undefined) {
@@ -36,17 +41,43 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   // (columns may not exist until migration 016 is run)
   if (b.recurrenceDayOfWeek !== undefined && b.recurrenceDayOfWeek !== null) patch.recurrence_day_of_week = b.recurrenceDayOfWeek
   if (b.recurrenceWeekdaysOnly !== undefined && b.recurrenceWeekdaysOnly !== false) patch.recurrence_weekdays_only = !!b.recurrenceWeekdaysOnly
-  if (Object.keys(patch).length === 0) return NextResponse.json({ success: true })
+  if (Object.keys(patch).length > 0) {
+    const { error } = await supabase.from('todos').update(patch).eq('id', params.id)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  }
 
-  const { error } = await supabase.from('todos').update(patch).eq('id', params.id)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  if (b.assigneeId && b.assigneeId !== auth.userId) {
-    const { data: t } = await supabase.from('todos').select('title').eq('id', params.id).single()
-    await supabase.from('notifications').insert({
-      user_id: b.assigneeId, type: 'todo_assigned',
-      message: `You were assigned a task: "${(t?.title || 'Task').slice(0, 80)}"`, link: '/notes',
-    })
+  // Sync the assignee join table when a full list is provided
+  if (multiAssign) {
+    const db = createServiceClient()
+    const { data: existing } = await db.from('todo_assignees').select('user_id').eq('todo_id', params.id)
+    const before = new Set((existing ?? []).map((r: { user_id: string }) => r.user_id))
+    await db.from('todo_assignees').delete().eq('todo_id', params.id)
+    if (assigneeIds.length) {
+      await db.from('todo_assignees').insert(assigneeIds.map(uid => ({ todo_id: params.id, user_id: uid })))
+    }
+    // Notify newly-added assignees
+    const added = assigneeIds.filter(uid => !before.has(uid) && uid !== auth.userId)
+    if (added.length) {
+      const { data: t } = await db.from('todos').select('title').eq('id', params.id).single()
+      await db.from('notifications').insert(added.map(uid => ({
+        user_id: uid, type: 'todo_assigned',
+        message: `You were assigned a task: "${(t?.title || 'Task').slice(0, 80)}"`, link: '/todos',
+      })))
+    }
+  } else if (b.assigneeId !== undefined) {
+    // Single-assignee path (e.g. legacy/AI): keep the join table in sync
+    const db = createServiceClient()
+    await db.from('todo_assignees').delete().eq('todo_id', params.id)
+    if (b.assigneeId) {
+      await db.from('todo_assignees').insert({ todo_id: params.id, user_id: b.assigneeId })
+      if (b.assigneeId !== auth.userId) {
+        const { data: t } = await db.from('todos').select('title').eq('id', params.id).single()
+        await db.from('notifications').insert({
+          user_id: b.assigneeId, type: 'todo_assigned',
+          message: `You were assigned a task: "${(t?.title || 'Task').slice(0, 80)}"`, link: '/todos',
+        })
+      }
+    }
   }
   return NextResponse.json({ success: true })
 }
