@@ -116,6 +116,27 @@ export function TodosClient({ currentUserId, people, myTeams }: {
     return d
   }, [sel, today])
 
+  // ── optimistic insert of a newly-created task (no full reload) ────────────
+  const nameById = useMemo(() => new Map(people.map(p => [p.id, p.full_name])), [people])
+  function handleCreated(raw: Record<string, unknown>) {
+    const r = raw as Partial<Todo> & { assignee_id?: string | null; team_id?: string | null }
+    const enriched: Todo = {
+      id: String(r.id), owner_id: String(r.owner_id ?? currentUserId),
+      assignee_id: r.assignee_id ?? null, team_id: r.team_id ?? null,
+      title: String(r.title ?? ''), detail: r.detail ?? null, due_date: r.due_date ?? null,
+      priority: (r.priority as Todo['priority']) ?? 'medium', status: String(r.status ?? 'open'),
+      is_done: !!r.is_done, recurrence: (r.recurrence as Todo['recurrence']) ?? 'none',
+      recurrence_parent_id: r.recurrence_parent_id ?? null, is_carry: false,
+      recurrence_day_of_week: r.recurrence_day_of_week ?? null, recurrence_weekdays_only: !!r.recurrence_weekdays_only,
+      deleted_at: null, deleted_by: null, deletedByName: null,
+      mine: true, assignedToMe: (r.assignee_id ?? null) === currentUserId,
+      ownerName: 'You', assigneeName: r.assignee_id ? (nameById.get(r.assignee_id) ?? null) : null,
+      teamName: r.team_id ? (myTeams.find(t => t.id === r.team_id)?.name ?? null) : null,
+      list_id: r.list_id ?? null, position: (r.position as number) ?? 0,
+    }
+    setTodos(prev => [enriched, ...prev])
+  }
+
   // ── mutations ─────────────────────────────────────────────────────────────
   async function patch(id: string, body: Record<string, unknown>) {
     setTodos(prev => prev.map(t => t.id === id ? applyPatch(t, body) : t))
@@ -221,7 +242,7 @@ export function TodosClient({ currentUserId, people, myTeams }: {
             statuses={statuses} people={people} teams={myTeams} lists={lists}
             currentTeamId={isTeamSpace ? space : null}
             defaults={addDefaults}
-            onAdded={loadTodos}
+            onCreated={handleCreated}
           />
 
           {/* Table */}
@@ -372,10 +393,10 @@ function ListSidebar({ lists, sel, onSelect, todos, today, space, isTeamSpace, o
 
 // ─── Quick add (single line + expandable) ─────────────────────────────────────
 
-function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onAdded }: {
+function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onCreated }: {
   statuses: TodoStatus[]; people: Person[]; teams: Team[]; lists: TodoList[]; currentTeamId: string | null
   defaults: { recurrence: 'none' | 'daily' | 'weekly'; dueDate: string | null; listId: string | null }
-  onAdded: () => void
+  onCreated: (raw: Record<string, unknown>) => void
 }) {
   const [title, setTitle] = useState('')
   const [adding, setAdding] = useState(false)
@@ -413,7 +434,7 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onA
         const d = await r.json()
         if (r.ok && d.draft) {
           const draft = d.draft
-          await fetch('/api/todos', {
+          const res = await fetch('/api/todos', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               title: draft.title, detail: draft.detail, dueDate: draft.dueDate,
@@ -425,6 +446,8 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onA
               statusName: draft.statusName,
             }),
           })
+          const cd = await res.json().catch(() => ({}))
+          if (res.ok && cd.todo) onCreated(cd.todo)
           // Brief confirmation of what the AI picked up
           const bits: string[] = []
           if (draft.dueDate) bits.push(`📅 ${draft.dueDate}`)
@@ -438,7 +461,7 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onA
         }
       } else {
         const selectedStatus = statuses.find(s => s.name === status)
-        await fetch('/api/todos', {
+        const res = await fetch('/api/todos', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             title: t, detail: detail || null, priority,
@@ -452,9 +475,10 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onA
             isDone: selectedStatus?.is_done ?? false,
           }),
         })
+        const cd = await res.json().catch(() => ({}))
+        if (res.ok && cd.todo) onCreated(cd.todo)
       }
       reset()
-      onAdded()
     } finally { setAdding(false) }
   }
 
@@ -586,7 +610,7 @@ function TaskTable({ open, done, people, teams, statuses, lists, onToggleDone, o
   return (
     <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
       {/* Column header */}
-      <div className="grid grid-cols-[20px_18px_1fr_84px_70px_70px_28px] gap-2 items-center px-3 py-2 border-b border-gray-100 text-[10px] font-bold uppercase tracking-wide text-gray-400">
+      <div className="grid grid-cols-[20px_18px_1fr_84px_56px_72px_28px] gap-2 items-center px-3 py-2 border-b border-gray-100 text-[10px] font-bold uppercase tracking-wide text-gray-400">
         <span /><span /><span>Task</span><span>Status</span><span className="text-center">Priority</span><span className="text-right pr-1">Due</span><span />
       </div>
 
@@ -639,13 +663,13 @@ function TaskRow({ t, people, teams, statuses, lists, assigneeName, expanded, on
 }) {
   const isDone = t.is_done
   const isOverdue = t.due_date && !isDone && t.due_date < new Date().toISOString().slice(0, 10)
-  const prioClass = PRIORITY_COLOR[t.priority]
   const dueLabel = t.due_date ? new Date(t.due_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : null
+  const recur = recurrenceLabel(t)
 
   return (
     <div className="border-b border-gray-50 last:border-0"
       onDragEnter={onDragEnter} onDragOver={e => draggable && e.preventDefault()}>
-      <div className="grid grid-cols-[20px_18px_1fr_84px_70px_70px_28px] gap-2 items-center px-3 py-2 group hover:bg-slate-50/60">
+      <div className="grid grid-cols-[20px_18px_1fr_84px_56px_72px_28px] gap-2 items-center px-3 py-2 group hover:bg-slate-50/60">
         {/* drag handle */}
         <span draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd}
           className={`cursor-grab active:cursor-grabbing text-gray-200 group-hover:text-gray-400 ${draggable ? '' : 'opacity-0'}`}>
@@ -656,22 +680,22 @@ function TaskRow({ t, people, teams, statuses, lists, assigneeName, expanded, on
           className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors ${isDone ? 'bg-teal-500 border-teal-500' : 'border-gray-300 hover:border-teal-500'}`}>
           {isDone && <Check className="w-2.5 h-2.5 text-white" />}
         </button>
-        {/* title */}
+        {/* title + recurrence schedule */}
         <button onClick={onExpand} className="min-w-0 text-left flex items-center gap-2">
           <span className={`text-sm truncate ${isDone ? 'text-gray-400 line-through' : 'text-navy-700'}`}>{t.title}</span>
           {t.is_carry && !isDone && <span className="text-[9px] bg-red-100 text-red-600 font-bold px-1 py-0.5 rounded flex-shrink-0">DUE</span>}
-          {t.recurrence !== 'none' && <span className="text-[9px] text-gray-400 border border-gray-200 rounded px-1 flex-shrink-0">↻</span>}
+          {recur && <span className="text-[9px] text-gray-500 bg-gray-100 rounded px-1.5 py-0.5 flex-shrink-0 flex items-center gap-0.5">↻ {recur}</span>}
           {assigneeName && <span className="text-[10px] text-teal-600 flex-shrink-0">· {t.assignedToMe ? 'You' : assigneeName}</span>}
         </button>
         {/* status */}
         <div className="min-w-0"><StatusPicker current={t.status} statuses={statuses} onChange={onChangeStatus} /></div>
-        {/* priority */}
-        <div className="flex justify-center" title={t.priority}>
-          <Flag className={`w-3.5 h-3.5 ${prioClass}`} fill="currentColor" />
+        {/* priority — click to change */}
+        <div className="flex justify-center">
+          <PriorityPicker value={t.priority} onChange={p => onPatch({ priority: p })} />
         </div>
-        {/* due */}
-        <div className="text-right pr-1">
-          {dueLabel ? <span className={`text-[11px] ${isOverdue ? 'text-red-500 font-semibold' : 'text-gray-500'}`}>{dueLabel}</span> : <span className="text-[11px] text-gray-300">—</span>}
+        {/* due — click to change */}
+        <div className="flex justify-end pr-1">
+          <DueCell value={t.due_date} overdue={!!isOverdue} label={dueLabel} onChange={d => onPatch({ dueDate: d })} />
         </div>
         {/* delete */}
         <button onClick={onDelete} title="Delete" className="text-gray-200 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity flex justify-center">
@@ -712,6 +736,79 @@ function TaskRow({ t, people, teams, statuses, lists, assigneeName, expanded, on
         </div>
       )}
     </div>
+  )
+}
+
+// ─── Recurrence label ─────────────────────────────────────────────────────────
+
+const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+function recurrenceLabel(t: Todo): string | null {
+  if (t.recurrence === 'daily') return t.recurrence_weekdays_only ? 'Weekdays' : 'Daily'
+  if (t.recurrence === 'weekly') return `Weekly · ${DOW[t.recurrence_day_of_week ?? 1]}`
+  return null
+}
+
+// ─── Priority picker (click the flag to change) ───────────────────────────────
+
+const PRIO_OPTS: { value: 'high' | 'medium' | 'low'; label: string; color: string }[] = [
+  { value: 'high', label: 'High', color: 'text-red-500' },
+  { value: 'medium', label: 'Medium', color: 'text-amber-500' },
+  { value: 'low', label: 'Low', color: 'text-gray-300' },
+]
+
+function PriorityPicker({ value, onChange }: { value: string; onChange: (p: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+  function toggle() {
+    if (!open && btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect()
+      setPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX - 60 })
+    }
+    setOpen(o => !o)
+  }
+  return (
+    <>
+      <button ref={btnRef} onClick={toggle} title={`Priority: ${value}`} className="p-0.5 rounded hover:bg-gray-100">
+        <Flag className={`w-3.5 h-3.5 ${PRIORITY_COLOR[value]}`} fill="currentColor" />
+      </button>
+      {open && typeof document !== 'undefined' && createPortal(
+        <>
+          <div className="fixed inset-0 z-[9998]" onClick={() => setOpen(false)} />
+          <div className="absolute z-[9999] bg-white border border-gray-200 rounded-xl shadow-xl w-32 py-1.5" style={{ top: pos.top, left: pos.left }}>
+            {PRIO_OPTS.map(o => (
+              <button key={o.value} onClick={() => { onChange(o.value); setOpen(false) }}
+                className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50">
+                <Flag className={`w-3.5 h-3.5 ${o.color}`} fill="currentColor" />
+                <span className="flex-1">{o.label}</span>
+                {value === o.value && <Check className="w-3 h-3 text-teal-500" />}
+              </button>
+            ))}
+          </div>
+        </>,
+        document.body,
+      )}
+    </>
+  )
+}
+
+// ─── Due cell (click the date to change) ──────────────────────────────────────
+
+function DueCell({ value, overdue, label, onChange }: { value: string | null; overdue: boolean; label: string | null; onChange: (d: string | null) => void }) {
+  const [editing, setEditing] = useState(false)
+  if (editing) {
+    return (
+      <input type="date" autoFocus defaultValue={value ?? ''}
+        onBlur={e => { setEditing(false); if (e.target.value !== (value ?? '')) onChange(e.target.value || null) }}
+        onChange={e => { onChange(e.target.value || null); setEditing(false) }}
+        className="text-[11px] border border-teal-300 rounded px-1 py-0.5 w-[72px] focus:outline-none" />
+    )
+  }
+  return (
+    <button onClick={() => setEditing(true)} title="Set due date"
+      className={`text-[11px] rounded px-1 py-0.5 hover:bg-gray-100 ${label ? (overdue ? 'text-red-500 font-semibold' : 'text-gray-500') : 'text-gray-300 hover:text-gray-500'}`}>
+      {label ?? '+ date'}
+    </button>
   )
 }
 
