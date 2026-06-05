@@ -70,11 +70,12 @@ export async function GET(request: Request) {
 
   const db = createServiceClient()
   const todoIds = rows.map(t => t.id)
-  const [{ data: teams }, { data: commentRows }, { data: assigneeRows }, { data: sopLinkRows }] = await Promise.all([
+  const [{ data: teams }, { data: commentRows }, { data: assigneeRows }, { data: sopLinkRows }, { data: companyLinkRows }] = await Promise.all([
     teamIds.length ? supabase.from('teams').select('id, name').in('id', teamIds) : Promise.resolve({ data: [] }),
     todoIds.length ? db.from('todo_comments').select('todo_id').in('todo_id', todoIds) : Promise.resolve({ data: [] }),
     todoIds.length ? db.from('todo_assignees').select('todo_id, user_id').in('todo_id', todoIds) : Promise.resolve({ data: [] }),
     todoIds.length ? db.from('todo_sops').select('todo_id, sops(id, title)').in('todo_id', todoIds) : Promise.resolve({ data: [] }),
+    todoIds.length ? db.from('todo_companies').select('todo_id, companies(id, name)').in('todo_id', todoIds) : Promise.resolve({ data: [] }),
   ])
 
   // linked SOPs per todo
@@ -84,6 +85,15 @@ export async function GET(request: Request) {
     if (!sop) continue
     const list = sopsByTodo.get(row.todo_id) ?? []
     list.push({ id: sop.id, title: sop.title }); sopsByTodo.set(row.todo_id, list)
+  }
+
+  // linked companies per todo
+  const companiesByTodo = new Map<string, { id: string; name: string }[]>()
+  for (const row of (companyLinkRows ?? []) as { todo_id: string; companies: { id: string; name: string } | { id: string; name: string }[] | null }[]) {
+    const co = Array.isArray(row.companies) ? row.companies[0] : row.companies
+    if (!co) continue
+    const list = companiesByTodo.get(row.todo_id) ?? []
+    list.push({ id: co.id, name: co.name }); companiesByTodo.set(row.todo_id, list)
   }
 
   // assignees per todo
@@ -123,6 +133,7 @@ export async function GET(request: Request) {
       deletedByName: t.deleted_by ? nameById.get(t.deleted_by) ?? null : null,
       commentCount: commentCount.get(t.id) ?? 0,
       sops: sopsByTodo.get(t.id) ?? [],
+      companies: companiesByTodo.get(t.id) ?? [],
     }
   })
   return NextResponse.json({ todos })
@@ -187,6 +198,12 @@ export async function POST(request: Request) {
     await db2.from('todo_sops').insert(sopIds.map(sid => ({ todo_id: data.id, sop_id: sid })))
   }
 
+  // Link companies
+  const companyIds: string[] = Array.isArray(b.companyIds) ? b.companyIds.filter(Boolean) : []
+  if (companyIds.length) {
+    await db2.from('todo_companies').insert(companyIds.map(cid => ({ todo_id: data.id, company_id: cid })))
+  }
+
   // Teams channel notification for team tasks
   if (insert.team_id) {
     // Look up the team's webhook URL and resolve names (best-effort, fire-and-forget)
@@ -216,5 +233,5 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ todo: { ...data, assigneeIds, sopIds } })
+  return NextResponse.json({ todo: { ...data, assigneeIds, sopIds, companyIds } })
 }

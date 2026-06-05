@@ -26,6 +26,7 @@ export interface Todo {
   assigneeName: string | null; teamName: string | null
   assignees?: { id: string; full_name: string | null }[]
   sops?: { id: string; title: string }[]
+  companies?: { id: string; name: string }[]
   list_id: string | null; position: number
   commentCount?: number
 }

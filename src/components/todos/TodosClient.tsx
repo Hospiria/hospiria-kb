@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   Plus, Trash2, Users, Sparkles, Loader2, Calendar, ChevronDown, Check, X,
   Lock, Globe, Search, SlidersHorizontal, Flag, GripVertical, Inbox, Sunrise,
-  CalendarDays, ListPlus, Pencil, MessageSquare, MoreHorizontal, Link2, ExternalLink,
+  CalendarDays, ListPlus, Pencil, MessageSquare, MoreHorizontal, Link2, ExternalLink, Building2,
 } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { DeleteConfirmModal, type DeleteTarget } from '@/components/notes/DeleteConfirmModal'
@@ -120,7 +120,7 @@ export function TodosClient({ currentUserId, people, myTeams }: {
   // ── optimistic insert of a newly-created task (no full reload) ────────────
   const nameById = useMemo(() => new Map(people.map(p => [p.id, p.full_name])), [people])
   function handleCreated(raw: Record<string, unknown>) {
-    const r = raw as Partial<Todo> & { assignee_id?: string | null; team_id?: string | null; assigneeIds?: string[]; sops?: { id: string; title: string }[] }
+    const r = raw as Partial<Todo> & { assignee_id?: string | null; team_id?: string | null; assigneeIds?: string[]; sops?: { id: string; title: string }[]; companies?: { id: string; name: string }[] }
     const ids = Array.isArray(r.assigneeIds) ? r.assigneeIds : (r.assignee_id ? [r.assignee_id] : [])
     const assignees = ids.map(id => ({ id, full_name: nameById.get(id) ?? null }))
     const enriched: Todo = {
@@ -137,6 +137,7 @@ export function TodosClient({ currentUserId, people, myTeams }: {
       teamName: r.team_id ? (myTeams.find(t => t.id === r.team_id)?.name ?? null) : null,
       list_id: r.list_id ?? null, position: (r.position as number) ?? 0,
       sops: Array.isArray(r.sops) ? r.sops : [],
+      companies: Array.isArray(r.companies) ? r.companies : [],
     }
     setTodos(prev => [enriched, ...prev])
   }
@@ -319,6 +320,9 @@ function applyPatch(t: Todo, b: Record<string, unknown>, peopleById?: Map<string
   if (Array.isArray(b.sops)) {
     next.sops = b.sops as { id: string; title: string }[]
   }
+  if (Array.isArray(b.companies)) {
+    next.companies = b.companies as { id: string; name: string }[]
+  }
   return next
 }
 
@@ -452,6 +456,7 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onC
   const [weekdaysOnly, setWeekdaysOnly] = useState(false)
   const [listId, setListId] = useState(defaults.listId ?? '')
   const [sops, setSops] = useState<{ id: string; title: string }[]>([])
+  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([])
 
   // Keep recurrence/list in sync with the active view/list when it changes
   useEffect(() => { setRecurrence(defaults.recurrence); setListId(defaults.listId ?? '') }, [defaults.recurrence, defaults.listId])
@@ -459,7 +464,7 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onC
   function reset() {
     setTitle(''); setDetail(''); setDueDate(''); setAssigneeIds([]); setPriority('medium')
     setStatus(defaultStatus); setRecurrence(defaults.recurrence); setDayOfWeek(1); setWeekdaysOnly(false)
-    setListId(defaults.listId ?? ''); setSops([])
+    setListId(defaults.listId ?? ''); setSops([]); setCompanies([])
   }
 
   const [aiNote, setAiNote] = useState('')
@@ -486,7 +491,7 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onC
             }),
           })
           const cd = await res.json().catch(() => ({}))
-          if (res.ok && cd.todo) onCreated({ ...cd.todo, sops: [] })
+          if (res.ok && cd.todo) onCreated({ ...cd.todo, sops: [], companies: [] })
           // Brief confirmation of what the AI picked up
           const bits: string[] = []
           if (draft.dueDate) bits.push(`📅 ${draft.dueDate}`)
@@ -508,6 +513,7 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onC
             assigneeIds, teamId: currentTeamId,
             listId: listId || null,
             sopIds: sops.map(s => s.id),
+            companyIds: companies.map(c => c.id),
             recurrence,
             recurrenceDayOfWeek: recurrence === 'weekly' ? dayOfWeek : null,
             recurrenceWeekdaysOnly: recurrence === 'daily' ? weekdaysOnly : false,
@@ -516,7 +522,7 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onC
           }),
         })
         const cd = await res.json().catch(() => ({}))
-        if (res.ok && cd.todo) onCreated({ ...cd.todo, sops })
+        if (res.ok && cd.todo) onCreated({ ...cd.todo, sops, companies })
       }
       reset()
     } finally { setAdding(false) }
@@ -608,8 +614,12 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onC
             </label>
           </div>
           <div>
-            <p className="text-[10px] font-semibold text-gray-400 mb-1">Link SOPs</p>
+            <p className="text-[10px] font-semibold text-gray-400 mb-1 flex items-center gap-1"><Link2 className="w-3 h-3" /> Link SOPs</p>
             <SopLinker value={sops} onChange={setSops} />
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold text-gray-400 mb-1 flex items-center gap-1"><Building2 className="w-3 h-3" /> Link companies</p>
+            <CompanyLinker value={companies} onChange={setCompanies} />
           </div>
         </div>
       )}
@@ -655,8 +665,11 @@ function TaskTable({ open, done, people, teams, statuses, lists, onToggleDone, o
   return (
     <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
       {/* Column header */}
-      <div className="grid grid-cols-[18px_18px_1fr_80px_40px_64px_76px_24px_24px_24px] gap-2 items-center px-3 py-2 border-b border-gray-100 text-[10px] font-bold uppercase tracking-wide text-gray-400">
-        <span /><span /><span>Task</span><span>Status</span><span className="text-center">Prio</span><span className="text-right pr-1">Due</span><span>Assignee</span><span title="Linked SOPs" className="text-center">SOP</span><span /><span />
+      <div className="grid grid-cols-[18px_18px_1fr_80px_40px_64px_76px_20px_20px_20px_20px] gap-2 items-center px-3 py-2 border-b border-gray-100 text-[10px] font-bold uppercase tracking-wide text-gray-400">
+        <span /><span /><span>Task</span><span>Status</span><span className="text-center">Prio</span><span className="text-right pr-1">Due</span><span>Assignee</span>
+        <span title="SOPs" className="flex justify-center"><Link2 className="w-3 h-3" /></span>
+        <span title="Companies" className="flex justify-center"><Building2 className="w-3 h-3" /></span>
+        <span /><span />
       </div>
 
       {orderedOpen.map(t => (
@@ -717,7 +730,7 @@ function TaskRow({ t, people, teams, statuses, lists, expanded, onToggleDone, on
   return (
     <div className="border-b border-gray-50 last:border-0"
       onDragEnter={onDragEnter} onDragOver={e => draggable && e.preventDefault()}>
-      <div className="grid grid-cols-[18px_18px_1fr_80px_40px_64px_76px_24px_24px_24px] gap-2 items-center px-3 py-2 group hover:bg-slate-50/60">
+      <div className="grid grid-cols-[18px_18px_1fr_80px_40px_64px_76px_20px_20px_20px_20px] gap-2 items-center px-3 py-2 group hover:bg-slate-50/60">
         {/* drag handle */}
         <span draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd}
           className={`cursor-grab active:cursor-grabbing text-gray-200 group-hover:text-gray-400 ${draggable ? '' : 'opacity-0'}`}>
@@ -748,8 +761,26 @@ function TaskRow({ t, people, teams, statuses, lists, expanded, onToggleDone, on
             onChange={ids => onPatch({ assigneeIds: ids })}
           />
         </div>
-        {/* linked SOPs */}
-        <div className="flex justify-center"><SopBadge sops={t.sops ?? []} /></div>
+        {/* SOPs — editable popover */}
+        <div className="flex justify-center">
+          <LinkBadge
+            icon={Link2} items={(t.sops ?? []).map(s => ({ id: s.id, label: s.title, href: `/sops/${s.id}` }))}
+            emptyTitle="Link SOPs"
+            searchPlaceholder="Search SOPs…"
+            onSearch={async q => { const { createClient } = await import('@/lib/supabase/client'); const sb = createClient(); const { data } = await sb.from('sops').select('id, title').ilike('title', `%${q}%`).order('title').limit(8); return (data ?? []).map((s: { id: string; title: string }) => ({ id: s.id, label: s.title })) }}
+            onChange={items => onPatch({ sopIds: items.map(i => i.id), sops: items.map(i => ({ id: i.id, title: i.label })) })}
+          />
+        </div>
+        {/* Companies — editable popover */}
+        <div className="flex justify-center">
+          <LinkBadge
+            icon={Building2} items={(t.companies ?? []).map(c => ({ id: c.id, label: c.name }))}
+            emptyTitle="Link companies"
+            searchPlaceholder="Search companies…"
+            onSearch={async q => { const res = await fetch(`/api/companies?q=${encodeURIComponent(q)}`); const d = await res.json(); return (d.companies ?? []).map((c: { id: string; name: string }) => ({ id: c.id, label: c.name })) }}
+            onChange={items => onPatch({ companyIds: items.map(i => i.id), companies: items.map(i => ({ id: i.id, name: i.label })) })}
+          />
+        </div>
         {/* comments indicator */}
         <button onClick={onOpenComments} title={comments ? `${comments} comment${comments !== 1 ? 's' : ''}` : 'Add a comment'}
           className={`flex items-center justify-center gap-0.5 ${comments ? 'text-teal-600' : 'text-gray-200 group-hover:text-gray-400'}`}>
@@ -781,8 +812,13 @@ function TaskRow({ t, people, teams, statuses, lists, expanded, onToggleDone, on
           {t.detail && <p className="text-xs text-gray-500 mt-2 whitespace-pre-wrap">{t.detail}</p>}
           {/* Linked SOPs */}
           <div className="mt-3">
-            <p className="text-[10px] font-semibold text-gray-400 mb-1">Linked SOPs</p>
+            <p className="text-[10px] font-semibold text-gray-400 mb-1 flex items-center gap-1"><Link2 className="w-3 h-3" /> Linked SOPs</p>
             <SopLinker value={t.sops ?? []} onChange={sops => onPatch({ sopIds: sops.map(s => s.id), sops })} />
+          </div>
+          {/* Linked companies */}
+          <div className="mt-2">
+            <p className="text-[10px] font-semibold text-gray-400 mb-1 flex items-center gap-1"><Building2 className="w-3 h-3" /> Linked companies</p>
+            <CompanyLinker value={t.companies ?? []} onChange={cos => onPatch({ companyIds: cos.map(c => c.id), companies: cos })} />
           </div>
           <button onClick={onOpenComments} className="mt-3 text-[11px] text-teal-600 hover:underline flex items-center gap-1">
             <MessageSquare className="w-3 h-3" /> {comments ? `View ${comments} comment${comments !== 1 ? 's' : ''}` : 'Add a comment'}
@@ -946,40 +982,101 @@ function DueCell({ value, overdue, label, onChange }: { value: string | null; ov
   )
 }
 
-// ─── Linked-SOP badge (read-only popover in the row) ──────────────────────────
+// ─── Generic link badge — editable popover listing items + search to add ────────
+// Used for both SOPs and companies in the table row.
 
-function SopBadge({ sops }: { sops: { id: string; title: string }[] }) {
+type LinkItem = { id: string; label: string; href?: string }
+
+function LinkBadge({ icon: Icon, items, emptyTitle, searchPlaceholder, onSearch, onChange }: {
+  icon: typeof Link2; items: LinkItem[]
+  emptyTitle: string; searchPlaceholder: string
+  onSearch: (q: string) => Promise<LinkItem[]>
+  onChange: (items: LinkItem[]) => void
+}) {
   const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const [results, setResults] = useState<LinkItem[]>([])
+  const [searching, setSearching] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
   const [pos, setPos] = useState({ top: 0, left: 0 })
-  if (sops.length === 0) return <Link2 className="w-3.5 h-3.5 text-gray-200" />
+  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   function toggle() {
     if (!open && btnRef.current) {
       const r = btnRef.current.getBoundingClientRect()
-      setPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX - 180 })
+      setPos({ top: r.bottom + window.scrollY + 4, left: Math.max(4, r.left + window.scrollX - 200) })
     }
-    setOpen(o => !o)
+    setOpen(o => !o); setQ(''); setResults([])
   }
+  function search(text: string) {
+    setQ(text)
+    if (debounce.current) clearTimeout(debounce.current)
+    if (text.trim().length < 1) { setResults([]); setSearching(false); return }
+    setSearching(true)
+    debounce.current = setTimeout(async () => {
+      const picked = new Set(items.map(i => i.id))
+      const res = await onSearch(text.trim()).catch(() => [])
+      setResults(res.filter(r => !picked.has(r.id)))
+      setSearching(false)
+    }, 250)
+  }
+  function add(item: LinkItem) { onChange([...items, item]); setQ(''); setResults([]) }
+  function remove(id: string) { onChange(items.filter(i => i.id !== id)) }
+
   return (
     <>
-      <button ref={btnRef} onClick={toggle} title={`${sops.length} linked SOP${sops.length !== 1 ? 's' : ''}`}
-        className="flex items-center gap-0.5 text-teal-600">
-        <Link2 className="w-3.5 h-3.5" />
-        <span className="text-[10px] font-semibold">{sops.length}</span>
+      <button ref={btnRef} onClick={toggle} title={items.length ? `${items.length} linked` : emptyTitle}
+        className={`flex items-center gap-0.5 ${items.length ? 'text-teal-600' : 'text-gray-200 hover:text-gray-400'}`}>
+        <Icon className="w-3.5 h-3.5" />
+        {items.length > 0 && <span className="text-[10px] font-semibold">{items.length}</span>}
       </button>
       {open && typeof document !== 'undefined' && createPortal(
         <>
           <div className="fixed inset-0 z-[9998]" onClick={() => setOpen(false)} />
-          <div className="absolute z-[9999] bg-white border border-gray-200 rounded-xl shadow-xl w-60 py-1.5" style={{ top: pos.top, left: pos.left }}>
-            <p className="text-[10px] font-bold text-gray-400 uppercase px-3 pb-1">Linked SOPs</p>
-            {sops.map(s => (
-              <a key={s.id} href={`/sops/${s.id}`} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-teal-50 text-navy-700">
-                <Link2 className="w-3.5 h-3.5 text-teal-400 flex-shrink-0" />
-                <span className="flex-1 truncate">{s.title}</span>
-                <ExternalLink className="w-3 h-3 text-gray-300 flex-shrink-0" />
-              </a>
-            ))}
+          <div className="absolute z-[9999] bg-white border border-gray-200 rounded-xl shadow-xl w-64 py-2" style={{ top: pos.top, left: pos.left }}>
+            {/* Current linked items */}
+            {items.length > 0 && (
+              <div className="px-2 pb-2 mb-2 border-b border-gray-100 space-y-1">
+                {items.map(item => (
+                  <div key={item.id} className="flex items-center gap-1.5 text-[11px] text-navy-700">
+                    {item.href ? (
+                      <a href={item.href} target="_blank" rel="noopener noreferrer" className="flex-1 truncate hover:text-teal-600 flex items-center gap-1">
+                        <Icon className="w-3 h-3 text-teal-400 flex-shrink-0" />
+                        <span className="truncate">{item.label}</span>
+                        <ExternalLink className="w-2.5 h-2.5 text-gray-300 flex-shrink-0" />
+                      </a>
+                    ) : (
+                      <span className="flex-1 truncate flex items-center gap-1">
+                        <Icon className="w-3 h-3 text-teal-400 flex-shrink-0" />
+                        <span className="truncate">{item.label}</span>
+                      </span>
+                    )}
+                    <button onClick={() => remove(item.id)} className="text-gray-300 hover:text-red-500 flex-shrink-0"><X className="w-3.5 h-3.5" /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* Search to add */}
+            <div className="px-2 space-y-1.5">
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                {searching && <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 animate-spin" />}
+                <input autoFocus value={q} onChange={e => search(e.target.value)} placeholder={searchPlaceholder}
+                  className="w-full pl-7 pr-7 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              </div>
+              {q.length >= 1 && (
+                <div className="max-h-40 overflow-y-auto rounded-lg border border-gray-100">
+                  {!searching && results.length === 0 ? (
+                    <p className="text-[11px] text-gray-400 px-3 py-2">No results.</p>
+                  ) : results.map(r => (
+                    <button key={r.id} onClick={() => add(r)} className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-teal-50 text-navy-700">
+                      <Icon className="w-3.5 h-3.5 text-teal-400 flex-shrink-0" />
+                      <span className="flex-1 truncate">{r.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </>,
         document.body,
@@ -988,40 +1085,77 @@ function SopBadge({ sops }: { sops: { id: string; title: string }[] }) {
   )
 }
 
-// ─── SOP linker (search + add/remove, used in add form & row editor) ──────────
+// ─── SOP linker for form fields ───────────────────────────────────────────────
 
-function SopLinker({ value, onChange }: { value: { id: string; title: string }[]; onChange: (sops: { id: string; title: string }[]) => void }) {
+function SopLinker({ value, onChange }: { value: { id: string; title: string }[]; onChange: (v: { id: string; title: string }[]) => void }) {
+  return (
+    <GenericLinker
+      value={value.map(s => ({ id: s.id, label: s.title }))}
+      icon={Link2}
+      placeholder="Search SOPs to link…"
+      onSearch={async q => {
+        const { createClient } = await import('@/lib/supabase/client')
+        const sb = createClient()
+        const { data } = await sb.from('sops').select('id, title').ilike('title', `%${q}%`).order('title').limit(8)
+        return ((data ?? []) as { id: string; title: string }[]).map(s => ({ id: s.id, label: s.title }))
+      }}
+      onChange={items => onChange(items.map(i => ({ id: i.id, title: i.label })))}
+    />
+  )
+}
+
+// ─── Company linker for form fields ───────────────────────────────────────────
+
+function CompanyLinker({ value, onChange }: { value: { id: string; name: string }[]; onChange: (v: { id: string; name: string }[]) => void }) {
+  return (
+    <GenericLinker
+      value={value.map(c => ({ id: c.id, label: c.name }))}
+      icon={Building2}
+      placeholder="Search companies to link…"
+      onSearch={async q => {
+        const res = await fetch(`/api/companies?q=${encodeURIComponent(q)}`)
+        const d = await res.json()
+        return (d.companies ?? []).map((c: { id: string; name: string }) => ({ id: c.id, label: c.name }))
+      }}
+      onChange={items => onChange(items.map(i => ({ id: i.id, name: i.label })))}
+    />
+  )
+}
+
+// ─── Shared inline search-and-chip linker (used by SopLinker & CompanyLinker) ─
+
+function GenericLinker({ value, icon: Icon, placeholder, onSearch, onChange }: {
+  value: LinkItem[]; icon: typeof Link2; placeholder: string
+  onSearch: (q: string) => Promise<LinkItem[]>
+  onChange: (items: LinkItem[]) => void
+}) {
   const [q, setQ] = useState('')
-  const [results, setResults] = useState<{ id: string; title: string }[]>([])
+  const [results, setResults] = useState<LinkItem[]>([])
   const [searching, setSearching] = useState(false)
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
-
   function search(text: string) {
     setQ(text)
     if (debounce.current) clearTimeout(debounce.current)
-    if (text.trim().length < 2) { setResults([]); setSearching(false); return }
+    if (text.trim().length < 1) { setResults([]); setSearching(false); return }
     setSearching(true)
     debounce.current = setTimeout(async () => {
-      const { createClient } = await import('@/lib/supabase/client')
-      const sb = createClient()
-      const { data } = await sb.from('sops').select('id, title').ilike('title', `%${text.trim()}%`).order('title').limit(8)
       const picked = new Set(value.map(v => v.id))
-      setResults(((data ?? []) as { id: string; title: string }[]).filter(s => !picked.has(s.id)))
+      const res = await onSearch(text.trim()).catch(() => [])
+      setResults(res.filter(r => !picked.has(r.id)))
       setSearching(false)
     }, 250)
   }
-  function add(s: { id: string; title: string }) { onChange([...value, s]); setQ(''); setResults([]) }
-  function remove(id: string) { onChange(value.filter(s => s.id !== id)) }
-
+  function add(item: LinkItem) { onChange([...value, item]); setQ(''); setResults([]) }
+  function remove(id: string) { onChange(value.filter(i => i.id !== id)) }
   return (
     <div className="space-y-1.5">
       {value.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {value.map(s => (
-            <span key={s.id} className="flex items-center gap-1 bg-teal-50 border border-teal-200 text-teal-700 text-[11px] rounded-lg px-2 py-1 max-w-[180px]">
-              <Link2 className="w-3 h-3 flex-shrink-0" />
-              <span className="truncate">{s.title}</span>
-              <button onClick={() => remove(s.id)} className="text-teal-400 hover:text-red-500 flex-shrink-0"><X className="w-3 h-3" /></button>
+          {value.map(item => (
+            <span key={item.id} className="flex items-center gap-1 bg-teal-50 border border-teal-200 text-teal-700 text-[11px] rounded-lg px-2 py-1 max-w-[200px]">
+              <Icon className="w-3 h-3 flex-shrink-0" />
+              <span className="truncate">{item.label}</span>
+              <button onClick={() => remove(item.id)} className="text-teal-400 hover:text-red-500 flex-shrink-0"><X className="w-3 h-3" /></button>
             </span>
           ))}
         </div>
@@ -1029,17 +1163,17 @@ function SopLinker({ value, onChange }: { value: { id: string; title: string }[]
       <div className="relative">
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
         {searching && <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 animate-spin" />}
-        <input value={q} onChange={e => search(e.target.value)} placeholder="Search SOPs to link…"
+        <input value={q} onChange={e => search(e.target.value)} placeholder={placeholder}
           className="w-full pl-8 pr-8 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
       </div>
-      {q.trim().length >= 2 && (
-        <div className="border border-gray-100 rounded-lg max-h-40 overflow-y-auto">
+      {q.length >= 1 && (
+        <div className="border border-gray-100 rounded-lg max-h-36 overflow-y-auto">
           {!searching && results.length === 0 ? (
-            <p className="text-[11px] text-gray-400 px-3 py-2">No SOPs found.</p>
-          ) : results.map(s => (
-            <button key={s.id} onClick={() => add(s)} className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-teal-50 text-navy-700">
-              <Link2 className="w-3.5 h-3.5 text-teal-400 flex-shrink-0" />
-              <span className="flex-1 truncate">{s.title}</span>
+            <p className="text-[11px] text-gray-400 px-3 py-2">No results.</p>
+          ) : results.map(r => (
+            <button key={r.id} onClick={() => add(r)} className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-teal-50 text-navy-700">
+              <Icon className="w-3.5 h-3.5 text-teal-400 flex-shrink-0" />
+              <span className="flex-1 truncate">{r.label}</span>
             </button>
           ))}
         </div>
