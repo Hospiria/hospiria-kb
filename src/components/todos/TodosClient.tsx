@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   Plus, Trash2, Users, Sparkles, Loader2, Calendar, ChevronDown, Check, X,
   Lock, Globe, Search, SlidersHorizontal, Flag, GripVertical, Inbox, Sunrise,
-  CalendarDays, ListPlus, Pencil, MessageSquare, MoreHorizontal,
+  CalendarDays, ListPlus, Pencil, MessageSquare, MoreHorizontal, Link2, ExternalLink,
 } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { DeleteConfirmModal, type DeleteTarget } from '@/components/notes/DeleteConfirmModal'
@@ -120,7 +120,7 @@ export function TodosClient({ currentUserId, people, myTeams }: {
   // ── optimistic insert of a newly-created task (no full reload) ────────────
   const nameById = useMemo(() => new Map(people.map(p => [p.id, p.full_name])), [people])
   function handleCreated(raw: Record<string, unknown>) {
-    const r = raw as Partial<Todo> & { assignee_id?: string | null; team_id?: string | null; assigneeIds?: string[] }
+    const r = raw as Partial<Todo> & { assignee_id?: string | null; team_id?: string | null; assigneeIds?: string[]; sops?: { id: string; title: string }[] }
     const ids = Array.isArray(r.assigneeIds) ? r.assigneeIds : (r.assignee_id ? [r.assignee_id] : [])
     const assignees = ids.map(id => ({ id, full_name: nameById.get(id) ?? null }))
     const enriched: Todo = {
@@ -136,6 +136,7 @@ export function TodosClient({ currentUserId, people, myTeams }: {
       ownerName: 'You', assignees, assigneeName: assignees[0]?.full_name ?? null,
       teamName: r.team_id ? (myTeams.find(t => t.id === r.team_id)?.name ?? null) : null,
       list_id: r.list_id ?? null, position: (r.position as number) ?? 0,
+      sops: Array.isArray(r.sops) ? r.sops : [],
     }
     setTodos(prev => [enriched, ...prev])
   }
@@ -315,6 +316,9 @@ function applyPatch(t: Todo, b: Record<string, unknown>, peopleById?: Map<string
     next.assignees = ids.map(id => ({ id, full_name: peopleById?.get(id) ?? null }))
     next.assignee_id = ids[0] ?? null
   }
+  if (Array.isArray(b.sops)) {
+    next.sops = b.sops as { id: string; title: string }[]
+  }
   return next
 }
 
@@ -447,6 +451,7 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onC
   const [dayOfWeek, setDayOfWeek] = useState(1)
   const [weekdaysOnly, setWeekdaysOnly] = useState(false)
   const [listId, setListId] = useState(defaults.listId ?? '')
+  const [sops, setSops] = useState<{ id: string; title: string }[]>([])
 
   // Keep recurrence/list in sync with the active view/list when it changes
   useEffect(() => { setRecurrence(defaults.recurrence); setListId(defaults.listId ?? '') }, [defaults.recurrence, defaults.listId])
@@ -454,7 +459,7 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onC
   function reset() {
     setTitle(''); setDetail(''); setDueDate(''); setAssigneeIds([]); setPriority('medium')
     setStatus(defaultStatus); setRecurrence(defaults.recurrence); setDayOfWeek(1); setWeekdaysOnly(false)
-    setListId(defaults.listId ?? '')
+    setListId(defaults.listId ?? ''); setSops([])
   }
 
   const [aiNote, setAiNote] = useState('')
@@ -481,7 +486,7 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onC
             }),
           })
           const cd = await res.json().catch(() => ({}))
-          if (res.ok && cd.todo) onCreated(cd.todo)
+          if (res.ok && cd.todo) onCreated({ ...cd.todo, sops: [] })
           // Brief confirmation of what the AI picked up
           const bits: string[] = []
           if (draft.dueDate) bits.push(`📅 ${draft.dueDate}`)
@@ -502,6 +507,7 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onC
             dueDate: dueDate || defaults.dueDate || null,
             assigneeIds, teamId: currentTeamId,
             listId: listId || null,
+            sopIds: sops.map(s => s.id),
             recurrence,
             recurrenceDayOfWeek: recurrence === 'weekly' ? dayOfWeek : null,
             recurrenceWeekdaysOnly: recurrence === 'daily' ? weekdaysOnly : false,
@@ -510,7 +516,7 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onC
           }),
         })
         const cd = await res.json().catch(() => ({}))
-        if (res.ok && cd.todo) onCreated(cd.todo)
+        if (res.ok && cd.todo) onCreated({ ...cd.todo, sops })
       }
       reset()
     } finally { setAdding(false) }
@@ -601,6 +607,10 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onC
               </select>
             </label>
           </div>
+          <div>
+            <p className="text-[10px] font-semibold text-gray-400 mb-1">Link SOPs</p>
+            <SopLinker value={sops} onChange={setSops} />
+          </div>
         </div>
       )}
     </div>
@@ -645,8 +655,8 @@ function TaskTable({ open, done, people, teams, statuses, lists, onToggleDone, o
   return (
     <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
       {/* Column header */}
-      <div className="grid grid-cols-[18px_18px_1fr_80px_40px_64px_76px_24px_24px] gap-2 items-center px-3 py-2 border-b border-gray-100 text-[10px] font-bold uppercase tracking-wide text-gray-400">
-        <span /><span /><span>Task</span><span>Status</span><span className="text-center">Prio</span><span className="text-right pr-1">Due</span><span>Assignee</span><span /><span />
+      <div className="grid grid-cols-[18px_18px_1fr_80px_40px_64px_76px_24px_24px_24px] gap-2 items-center px-3 py-2 border-b border-gray-100 text-[10px] font-bold uppercase tracking-wide text-gray-400">
+        <span /><span /><span>Task</span><span>Status</span><span className="text-center">Prio</span><span className="text-right pr-1">Due</span><span>Assignee</span><span title="Linked SOPs" className="text-center">SOP</span><span /><span />
       </div>
 
       {orderedOpen.map(t => (
@@ -707,7 +717,7 @@ function TaskRow({ t, people, teams, statuses, lists, expanded, onToggleDone, on
   return (
     <div className="border-b border-gray-50 last:border-0"
       onDragEnter={onDragEnter} onDragOver={e => draggable && e.preventDefault()}>
-      <div className="grid grid-cols-[18px_18px_1fr_80px_40px_64px_76px_24px_24px] gap-2 items-center px-3 py-2 group hover:bg-slate-50/60">
+      <div className="grid grid-cols-[18px_18px_1fr_80px_40px_64px_76px_24px_24px_24px] gap-2 items-center px-3 py-2 group hover:bg-slate-50/60">
         {/* drag handle */}
         <span draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd}
           className={`cursor-grab active:cursor-grabbing text-gray-200 group-hover:text-gray-400 ${draggable ? '' : 'opacity-0'}`}>
@@ -738,6 +748,8 @@ function TaskRow({ t, people, teams, statuses, lists, expanded, onToggleDone, on
             onChange={ids => onPatch({ assigneeIds: ids })}
           />
         </div>
+        {/* linked SOPs */}
+        <div className="flex justify-center"><SopBadge sops={t.sops ?? []} /></div>
         {/* comments indicator */}
         <button onClick={onOpenComments} title={comments ? `${comments} comment${comments !== 1 ? 's' : ''}` : 'Add a comment'}
           className={`flex items-center justify-center gap-0.5 ${comments ? 'text-teal-600' : 'text-gray-200 group-hover:text-gray-400'}`}>
@@ -767,7 +779,12 @@ function TaskRow({ t, people, teams, statuses, lists, expanded, onToggleDone, on
             )}
           </div>
           {t.detail && <p className="text-xs text-gray-500 mt-2 whitespace-pre-wrap">{t.detail}</p>}
-          <button onClick={onOpenComments} className="mt-2 text-[11px] text-teal-600 hover:underline flex items-center gap-1">
+          {/* Linked SOPs */}
+          <div className="mt-3">
+            <p className="text-[10px] font-semibold text-gray-400 mb-1">Linked SOPs</p>
+            <SopLinker value={t.sops ?? []} onChange={sops => onPatch({ sopIds: sops.map(s => s.id), sops })} />
+          </div>
+          <button onClick={onOpenComments} className="mt-3 text-[11px] text-teal-600 hover:underline flex items-center gap-1">
             <MessageSquare className="w-3 h-3" /> {comments ? `View ${comments} comment${comments !== 1 ? 's' : ''}` : 'Add a comment'}
           </button>
         </div>
@@ -926,6 +943,108 @@ function DueCell({ value, overdue, label, onChange }: { value: string | null; ov
       className={`text-[11px] rounded px-1 py-0.5 hover:bg-gray-100 ${label ? (overdue ? 'text-red-500 font-semibold' : 'text-gray-500') : 'text-gray-300 hover:text-gray-500'}`}>
       {label ?? '+ date'}
     </button>
+  )
+}
+
+// ─── Linked-SOP badge (read-only popover in the row) ──────────────────────────
+
+function SopBadge({ sops }: { sops: { id: string; title: string }[] }) {
+  const [open, setOpen] = useState(false)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+  if (sops.length === 0) return <Link2 className="w-3.5 h-3.5 text-gray-200" />
+  function toggle() {
+    if (!open && btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect()
+      setPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX - 180 })
+    }
+    setOpen(o => !o)
+  }
+  return (
+    <>
+      <button ref={btnRef} onClick={toggle} title={`${sops.length} linked SOP${sops.length !== 1 ? 's' : ''}`}
+        className="flex items-center gap-0.5 text-teal-600">
+        <Link2 className="w-3.5 h-3.5" />
+        <span className="text-[10px] font-semibold">{sops.length}</span>
+      </button>
+      {open && typeof document !== 'undefined' && createPortal(
+        <>
+          <div className="fixed inset-0 z-[9998]" onClick={() => setOpen(false)} />
+          <div className="absolute z-[9999] bg-white border border-gray-200 rounded-xl shadow-xl w-60 py-1.5" style={{ top: pos.top, left: pos.left }}>
+            <p className="text-[10px] font-bold text-gray-400 uppercase px-3 pb-1">Linked SOPs</p>
+            {sops.map(s => (
+              <a key={s.id} href={`/sops/${s.id}`} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-teal-50 text-navy-700">
+                <Link2 className="w-3.5 h-3.5 text-teal-400 flex-shrink-0" />
+                <span className="flex-1 truncate">{s.title}</span>
+                <ExternalLink className="w-3 h-3 text-gray-300 flex-shrink-0" />
+              </a>
+            ))}
+          </div>
+        </>,
+        document.body,
+      )}
+    </>
+  )
+}
+
+// ─── SOP linker (search + add/remove, used in add form & row editor) ──────────
+
+function SopLinker({ value, onChange }: { value: { id: string; title: string }[]; onChange: (sops: { id: string; title: string }[]) => void }) {
+  const [q, setQ] = useState('')
+  const [results, setResults] = useState<{ id: string; title: string }[]>([])
+  const [searching, setSearching] = useState(false)
+  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  function search(text: string) {
+    setQ(text)
+    if (debounce.current) clearTimeout(debounce.current)
+    if (text.trim().length < 2) { setResults([]); setSearching(false); return }
+    setSearching(true)
+    debounce.current = setTimeout(async () => {
+      const { createClient } = await import('@/lib/supabase/client')
+      const sb = createClient()
+      const { data } = await sb.from('sops').select('id, title').ilike('title', `%${text.trim()}%`).order('title').limit(8)
+      const picked = new Set(value.map(v => v.id))
+      setResults(((data ?? []) as { id: string; title: string }[]).filter(s => !picked.has(s.id)))
+      setSearching(false)
+    }, 250)
+  }
+  function add(s: { id: string; title: string }) { onChange([...value, s]); setQ(''); setResults([]) }
+  function remove(id: string) { onChange(value.filter(s => s.id !== id)) }
+
+  return (
+    <div className="space-y-1.5">
+      {value.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {value.map(s => (
+            <span key={s.id} className="flex items-center gap-1 bg-teal-50 border border-teal-200 text-teal-700 text-[11px] rounded-lg px-2 py-1 max-w-[180px]">
+              <Link2 className="w-3 h-3 flex-shrink-0" />
+              <span className="truncate">{s.title}</span>
+              <button onClick={() => remove(s.id)} className="text-teal-400 hover:text-red-500 flex-shrink-0"><X className="w-3 h-3" /></button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="relative">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+        {searching && <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 animate-spin" />}
+        <input value={q} onChange={e => search(e.target.value)} placeholder="Search SOPs to link…"
+          className="w-full pl-8 pr-8 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
+      </div>
+      {q.trim().length >= 2 && (
+        <div className="border border-gray-100 rounded-lg max-h-40 overflow-y-auto">
+          {!searching && results.length === 0 ? (
+            <p className="text-[11px] text-gray-400 px-3 py-2">No SOPs found.</p>
+          ) : results.map(s => (
+            <button key={s.id} onClick={() => add(s)} className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-teal-50 text-navy-700">
+              <Link2 className="w-3.5 h-3.5 text-teal-400 flex-shrink-0" />
+              <span className="flex-1 truncate">{s.title}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

@@ -70,11 +70,21 @@ export async function GET(request: Request) {
 
   const db = createServiceClient()
   const todoIds = rows.map(t => t.id)
-  const [{ data: teams }, { data: commentRows }, { data: assigneeRows }] = await Promise.all([
+  const [{ data: teams }, { data: commentRows }, { data: assigneeRows }, { data: sopLinkRows }] = await Promise.all([
     teamIds.length ? supabase.from('teams').select('id, name').in('id', teamIds) : Promise.resolve({ data: [] }),
     todoIds.length ? db.from('todo_comments').select('todo_id').in('todo_id', todoIds) : Promise.resolve({ data: [] }),
     todoIds.length ? db.from('todo_assignees').select('todo_id, user_id').in('todo_id', todoIds) : Promise.resolve({ data: [] }),
+    todoIds.length ? db.from('todo_sops').select('todo_id, sops(id, title)').in('todo_id', todoIds) : Promise.resolve({ data: [] }),
   ])
+
+  // linked SOPs per todo
+  const sopsByTodo = new Map<string, { id: string; title: string }[]>()
+  for (const row of (sopLinkRows ?? []) as { todo_id: string; sops: { id: string; title: string } | { id: string; title: string }[] | null }[]) {
+    const sop = Array.isArray(row.sops) ? row.sops[0] : row.sops
+    if (!sop) continue
+    const list = sopsByTodo.get(row.todo_id) ?? []
+    list.push({ id: sop.id, title: sop.title }); sopsByTodo.set(row.todo_id, list)
+  }
 
   // assignees per todo
   const assigneesByTodo = new Map<string, string[]>()
@@ -112,6 +122,7 @@ export async function GET(request: Request) {
       teamName: t.team_id ? teamById.get(t.team_id) ?? null : null,
       deletedByName: t.deleted_by ? nameById.get(t.deleted_by) ?? null : null,
       commentCount: commentCount.get(t.id) ?? 0,
+      sops: sopsByTodo.get(t.id) ?? [],
     }
   })
   return NextResponse.json({ todos })
@@ -158,8 +169,8 @@ export async function POST(request: Request) {
   if (error || !data) return NextResponse.json({ error: error?.message ?? 'Create failed' }, { status: 500 })
 
   // Write the full assignee set + notify each assignee
+  const db2 = createServiceClient()
   if (assigneeIds.length) {
-    const db2 = createServiceClient()
     await db2.from('todo_assignees').insert(assigneeIds.map(uid => ({ todo_id: data.id, user_id: uid }))).select()
     const others = assigneeIds.filter(uid => uid !== auth.userId)
     if (others.length) {
@@ -168,6 +179,12 @@ export async function POST(request: Request) {
         message: `You were assigned a task: "${title.slice(0, 80)}"`, link: '/todos',
       })))
     }
+  }
+
+  // Link SOPs
+  const sopIds: string[] = Array.isArray(b.sopIds) ? b.sopIds.filter(Boolean) : []
+  if (sopIds.length) {
+    await db2.from('todo_sops').insert(sopIds.map(sid => ({ todo_id: data.id, sop_id: sid })))
   }
 
   // Teams channel notification for team tasks
@@ -199,5 +216,5 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ todo: { ...data, assigneeIds } })
+  return NextResponse.json({ todo: { ...data, assigneeIds, sopIds } })
 }

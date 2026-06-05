@@ -79,6 +79,16 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       }
     }
   }
+
+  // Sync linked SOPs when a full list is provided
+  if (Array.isArray(b.sopIds)) {
+    const db = createServiceClient()
+    const sopIds: string[] = b.sopIds.filter(Boolean)
+    await db.from('todo_sops').delete().eq('todo_id', params.id)
+    if (sopIds.length) {
+      await db.from('todo_sops').insert(sopIds.map(sid => ({ todo_id: params.id, sop_id: sid })))
+    }
+  }
   return NextResponse.json({ success: true })
 }
 

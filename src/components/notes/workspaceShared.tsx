@@ -25,6 +25,7 @@ export interface Todo {
   mine: boolean; assignedToMe: boolean; ownerName: string | null
   assigneeName: string | null; teamName: string | null
   assignees?: { id: string; full_name: string | null }[]
+  sops?: { id: string; title: string }[]
   list_id: string | null; position: number
   commentCount?: number
 }
