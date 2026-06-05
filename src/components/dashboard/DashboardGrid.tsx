@@ -2,14 +2,18 @@
 
 import { useState, useCallback, useRef, useMemo, createContext, useContext } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   SlidersHorizontal, CheckCircle2, Clock, AlertTriangle,
   FileText, GraduationCap, StickyNote, TrendingUp,
   ListChecks, ChevronRight, Pin, RotateCcw,
-  GripVertical, EyeOff, Check,
+  GripVertical, EyeOff, Check, Plus, Sparkles, Trash2, Bell, Loader2,
 } from 'lucide-react'
 import type { MemberChase, TeamQuizStat } from '@/app/(app)/dashboard/page'
 import type { Profile } from '@/types'
+
+type Person = { id: string; full_name: string | null }
+type TeamLite = { id: string; name: string }
 
 // ─── Card catalogue ───────────────────────────────────────────────────────────
 
@@ -65,13 +69,15 @@ interface Props {
   hiddenCards: string[]
   cardLayout?: { order?: string[]; spans?: Record<string, number>; heights?: Record<string, number> }
   userId: string
+  people?: Person[]
+  teams?: TeamLite[]
   data: DashboardData
   adminChildren?: React.ReactNode
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function DashboardGrid({ profile, role, hiddenCards: initialHidden, cardLayout, data, adminChildren }: Props) {
+export function DashboardGrid({ profile, role, hiddenCards: initialHidden, cardLayout, userId, people = [], teams = [], data, adminChildren }: Props) {
   const availableCards = useMemo(() => CARD_CATALOGUE.filter(c => c.roles.includes(role)), [role])
   const availableKeys = useMemo(() => availableCards.map(c => c.key as string), [availableCards])
 
@@ -157,10 +163,10 @@ export function DashboardGrid({ profile, role, hiddenCards: initialHidden, cardL
   // ── Card renderer ──────────────────────────────────────────────────────────
   const renderCard = (key: string) => {
     switch (key as CardKey) {
-      case 'tasks_today': return <TasksCard tasks={data.myTasks} />
-      case 'sops_approve': return <SopsApproveCard sops={data.sopsPending} />
+      case 'tasks_today': return <TasksCard tasks={data.myTasks} people={people} teams={teams} currentUserId={userId} editing={editing} />
+      case 'sops_approve': return <SopsApproveCard sops={data.sopsPending} editing={editing} />
       case 'quiz_team':    return <QuizTeamCard stats={data.teamQuizStats} />
-      case 'team_chase':   return <ChaseCard members={data.membersToChase} />
+      case 'team_chase':   return <ChaseCard members={data.membersToChase} editing={editing} />
       case 'my_courses':   return <MyCoursesCard courses={data.myCourses} />
       case 'my_notes':     return <MyNotesCard notes={data.myNotes} />
       case 'team_sops':    return <TeamSopsCard sops={data.teamSops} teamName={data.teamName} />
@@ -314,9 +320,10 @@ function CardShell({ title, icon: Icon, count, href, color = 'teal', headerRight
 // ─── My Tasks (tabbed: All / Daily / Weekly / Tasks) ───────────────────────────
 
 type TodoRow = {
-  id: string; title: string; due_date: string | null; priority: string
+  id: string; title: string; detail?: string | null; due_date: string | null; priority: string
   is_done: boolean; is_carry: boolean; status: string
   recurrence: string; recurrence_parent_id: string | null
+  assignee_id?: string | null; team_id?: string | null
 }
 type TaskView = 'all' | 'daily' | 'weekly' | 'tasks'
 const TASK_TABS: { key: TaskView; label: string }[] = [
@@ -326,20 +333,96 @@ const TASK_TABS: { key: TaskView; label: string }[] = [
   { key: 'tasks',  label: '✅ Tasks' },
 ]
 
-function TasksCard({ tasks }: { tasks: Record<string, unknown>[] }) {
+function Empty({ msg }: { msg: string }) {
+  return <p className="text-sm text-gray-400 italic px-5 py-6">{msg}</p>
+}
+
+function TasksCard({ tasks, people, teams, currentUserId, editing }: {
+  tasks: Record<string, unknown>[]; people: Person[]; teams: TeamLite[]; currentUserId: string; editing: boolean
+}) {
+  const router = useRouter()
+  const [items, setItems] = useState<TodoRow[]>(() => tasks as TodoRow[])
   const [view, setView] = useState<TaskView>('all')
-  const rows = tasks as TodoRow[]
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
+
+  // Quick-add
+  const [addMode, setAddMode] = useState<'ai' | 'manual'>('ai')
+  const [addText, setAddText] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [mPriority, setMPriority] = useState('medium')
+  const [mDue, setMDue] = useState('')
+  const [mAssignee, setMAssignee] = useState('')
+  const [mTeam, setMTeam] = useState('')
+  const [mRecur, setMRecur] = useState<'none' | 'daily' | 'weekly'>('none')
+
+  const nameById = useMemo(() => new Map(people.map(p => [p.id, p.full_name])), [people])
   const today = new Date().toISOString().slice(0, 10)
 
-  const daily   = rows.filter(t => t.recurrence === 'daily'  && !t.recurrence_parent_id)
-  const weekly  = rows.filter(t => t.recurrence === 'weekly' && !t.recurrence_parent_id)
-  const oneOff  = rows.filter(t => (t.recurrence ?? 'none') === 'none')
-
+  const daily   = items.filter(t => t.recurrence === 'daily'  && !t.recurrence_parent_id)
+  const weekly  = items.filter(t => t.recurrence === 'weekly' && !t.recurrence_parent_id)
+  const oneOff  = items.filter(t => (t.recurrence ?? 'none') === 'none')
   const overdue  = oneOff.filter(t => t.due_date && t.due_date < today)
   const dueToday = oneOff.filter(t => t.due_date === today)
   const upcoming = oneOff.filter(t => !t.due_date || t.due_date > today)
+  const counts: Record<TaskView, number> = { all: items.length, daily: daily.length, weekly: weekly.length, tasks: oneOff.length }
 
-  const counts: Record<TaskView, number> = { all: rows.length, daily: daily.length, weekly: weekly.length, tasks: oneOff.length }
+  // ── Mutations (optimistic) ────────────────────────────────────────────────
+  async function toggleDone(t: TodoRow) {
+    setItems(prev => prev.filter(x => x.id !== t.id)) // open list only — remove on complete
+    await fetch(`/api/todos/${t.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'done', isDone: true }),
+    }).catch(() => setItems(prev => [t, ...prev]))
+  }
+
+  async function saveEdit(id: string, patch: Partial<{ priority: string; dueDate: string; assigneeId: string; teamId: string }>) {
+    setBusyId(id)
+    setItems(prev => prev.map(x => x.id === id ? {
+      ...x,
+      priority: patch.priority ?? x.priority,
+      due_date: patch.dueDate !== undefined ? (patch.dueDate || null) : x.due_date,
+      assignee_id: patch.assigneeId !== undefined ? (patch.assigneeId || null) : x.assignee_id,
+      team_id: patch.teamId !== undefined ? (patch.teamId || null) : x.team_id,
+    } : x))
+    await fetch(`/api/todos/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+    }).catch(() => {})
+    setBusyId(null)
+  }
+
+  async function del(id: string) {
+    setItems(prev => prev.filter(x => x.id !== id))
+    setExpandedId(null)
+    await fetch(`/api/todos/${id}`, { method: 'DELETE' }).catch(() => {})
+  }
+
+  async function add() {
+    if (!addText.trim() || adding) return
+    setAdding(true)
+    try {
+      let body: Record<string, unknown>
+      if (addMode === 'ai') {
+        const r = await fetch('/api/todos/ai', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: addText }),
+        })
+        const d = await r.json()
+        if (!r.ok || !d.draft) { setAdding(false); return }
+        body = { ...d.draft }
+      } else {
+        body = { title: addText, priority: mPriority, dueDate: mDue || null, assigneeId: mAssignee || null, teamId: mTeam || null, recurrence: mRecur }
+      }
+      const res = await fetch('/api/todos', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      })
+      const d = await res.json()
+      if (res.ok && d.todo) {
+        setItems(prev => [d.todo as TodoRow, ...prev])
+        setAddText(''); setMDue(''); setMAssignee(''); setMTeam(''); setMRecur('none'); setMPriority('medium')
+        router.refresh() // sync other cards / counts
+      }
+    } finally { setAdding(false) }
+  }
 
   const tabs = (
     <div className="flex items-center gap-1">
@@ -352,61 +435,144 @@ function TasksCard({ tasks }: { tasks: Record<string, unknown>[] }) {
     </div>
   )
 
-  const empty = rows.length === 0
+  // ── Row ──────────────────────────────────────────────────────────────────
+  const Row = (t: TodoRow) => {
+    const open = expandedId === t.id
+    const assigneeName = t.assignee_id ? nameById.get(t.assignee_id) : null
+    return (
+      <div key={t.id} className="border-b border-gray-50 last:border-0">
+        <div className="flex items-center gap-2.5 py-2">
+          <button onClick={() => toggleDone(t)} title="Mark done"
+            className="w-4 h-4 rounded-full border-2 border-gray-300 hover:border-teal-500 hover:bg-teal-50 flex-shrink-0 transition-colors" />
+          <button onClick={() => setExpandedId(open ? null : t.id)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${t.priority === 'high' ? 'bg-red-400' : t.priority === 'medium' ? 'bg-amber-400' : 'bg-gray-300'}`} />
+            <span className="text-sm text-navy-700 flex-1 truncate hover:text-teal-600">{t.title}</span>
+            {assigneeName && <span className="text-[10px] text-gray-400 flex-shrink-0 max-w-[80px] truncate">{assigneeName}</span>}
+            {t.is_carry && <span className="text-[10px] bg-red-100 text-red-600 font-bold px-1.5 py-0.5 rounded flex-shrink-0">DUE</span>}
+            {t.due_date && (t.recurrence ?? 'none') === 'none' && <span className="text-[10px] text-gray-400 flex-shrink-0">{t.due_date.slice(5)}</span>}
+          </button>
+        </div>
+        {open && (
+          <div className="pb-3 pl-7 pr-1 grid grid-cols-2 gap-2">
+            <label className="text-[10px] font-semibold text-gray-400">Priority
+              <select value={t.priority} onChange={e => saveEdit(t.id, { priority: e.target.value })}
+                className="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1 text-xs">
+                <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
+              </select>
+            </label>
+            <label className="text-[10px] font-semibold text-gray-400">Due date
+              <input type="date" value={t.due_date ?? ''} onChange={e => saveEdit(t.id, { dueDate: e.target.value })}
+                className="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1 text-xs" />
+            </label>
+            <label className="text-[10px] font-semibold text-gray-400">Assigned to
+              <select value={t.assignee_id ?? ''} onChange={e => saveEdit(t.id, { assigneeId: e.target.value })}
+                className="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1 text-xs">
+                <option value="">Unassigned</option>
+                {people.map(p => <option key={p.id} value={p.id}>{p.full_name ?? 'Unknown'}</option>)}
+              </select>
+            </label>
+            <label className="text-[10px] font-semibold text-gray-400">Team
+              <select value={t.team_id ?? ''} onChange={e => saveEdit(t.id, { teamId: e.target.value })}
+                className="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1 text-xs">
+                <option value="">Personal</option>
+                {teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
+              </select>
+            </label>
+            <div className="col-span-2 flex items-center justify-between mt-1">
+              <Link href="/notes" className="text-[11px] text-teal-600 hover:underline">Open in Notes →</Link>
+              <button onClick={() => del(t.id)} className="text-[11px] text-red-400 hover:text-red-600 flex items-center gap-1">
+                <Trash2 className="w-3 h-3" /> Delete
+              </button>
+            </div>
+            {busyId === t.id && <span className="col-span-2 text-[10px] text-gray-400">Saving…</span>}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const Section = ({ label, tone, items: list }: { label?: string; tone?: 'red' | 'amber'; items: TodoRow[] }) => {
+    if (list.length === 0) return null
+    const toneClass = tone === 'red' ? 'text-red-600' : tone === 'amber' ? 'text-amber-600' : 'text-gray-400'
+    return (
+      <div className="px-5">
+        {label && <p className={`text-[11px] font-semibold mt-2 mb-0.5 ${toneClass}`}>{label}</p>}
+        {list.map(Row)}
+      </div>
+    )
+  }
 
   return (
     <CardShell title="My Tasks" icon={ListChecks} color={overdue.length > 0 ? 'red' : 'teal'} headerRight={tabs}>
-      {empty ? (
-        <p className="text-sm text-gray-400 italic px-5 py-6">
-          No open tasks. <Link href="/notes" className="text-teal-600 hover:underline pointer-events-auto">Go to Notes &amp; To-dos →</Link>
-        </p>
-      ) : (
-        <div className="h-full overflow-y-auto">
-          {/* All view: grouped one-offs by urgency + recurring sections */}
-          {view === 'all' && (
+      <div className="h-full overflow-y-auto flex flex-col">
+        {/* Quick add */}
+        {!editing && (
+          <div className="px-5 py-2.5 border-b border-gray-100 bg-slate-50/60">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <button onClick={() => setAddMode('ai')} className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${addMode === 'ai' ? 'bg-teal-600 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
+                <Sparkles className="w-3 h-3" /> AI
+              </button>
+              <button onClick={() => setAddMode('manual')} className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${addMode === 'manual' ? 'bg-navy-700 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
+                Manual
+              </button>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <input value={addText} onChange={e => setAddText(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()}
+                placeholder={addMode === 'ai' ? 'e.g. “chase checkout report Friday, high priority”' : 'Task title…'}
+                className="flex-1 border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              <button onClick={add} disabled={adding || !addText.trim()}
+                className="flex items-center gap-1 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg disabled:opacity-50">
+                {adding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Add
+              </button>
+            </div>
+            {addMode === 'manual' && (
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                <select value={mPriority} onChange={e => setMPriority(e.target.value)} className="border border-gray-200 rounded-lg px-1.5 py-1 text-[11px]">
+                  <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
+                </select>
+                <input type="date" value={mDue} onChange={e => setMDue(e.target.value)} className="border border-gray-200 rounded-lg px-1.5 py-1 text-[11px]" />
+                <select value={mRecur} onChange={e => setMRecur(e.target.value as 'none'|'daily'|'weekly')} className="border border-gray-200 rounded-lg px-1.5 py-1 text-[11px]">
+                  <option value="none">Once</option><option value="daily">Daily</option><option value="weekly">Weekly</option>
+                </select>
+                <select value={mAssignee} onChange={e => setMAssignee(e.target.value)} className="border border-gray-200 rounded-lg px-1.5 py-1 text-[11px] max-w-[120px]">
+                  <option value="">Assignee…</option>
+                  {people.map(p => <option key={p.id} value={p.id}>{p.full_name ?? 'Unknown'}</option>)}
+                </select>
+                <select value={mTeam} onChange={e => setMTeam(e.target.value)} className="border border-gray-200 rounded-lg px-1.5 py-1 text-[11px] max-w-[120px]">
+                  <option value="">Personal</option>
+                  {teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* List */}
+        {items.length === 0 ? (
+          <Empty msg="No open tasks — add one above. 🎉" />
+        ) : view === 'all' ? (
+          <>
+            <Section label={`⚠️ Overdue (${overdue.length})`} tone="red" items={overdue} />
+            <Section label={`📅 Due today (${dueToday.length})`} tone="amber" items={dueToday} />
+            <Section label={`Upcoming (${upcoming.length})`} items={upcoming} />
+            <Section label="🌅 Daily routines" items={daily} />
+            <Section label="📅 Weekly routines" items={weekly} />
+          </>
+        ) : view === 'daily' ? (
+          daily.length ? <Section items={daily} /> : <Empty msg="No daily routines." />
+        ) : view === 'weekly' ? (
+          weekly.length ? <Section items={weekly} /> : <Empty msg="No weekly routines." />
+        ) : (
+          oneOff.length ? (
             <>
-              {overdue.length > 0 && <TaskGroup label={`⚠️ Overdue (${overdue.length})`} tone="red" items={overdue} />}
-              {dueToday.length > 0 && <TaskGroup label={`📅 Due today (${dueToday.length})`} tone="amber" items={dueToday} />}
-              {upcoming.length > 0 && <TaskGroup label={`Upcoming (${upcoming.length})`} items={upcoming} />}
-              {daily.length > 0 && <TaskGroup label="🌅 Daily routines" items={daily} />}
-              {weekly.length > 0 && <TaskGroup label="📅 Weekly routines" items={weekly} />}
+              <Section label={`⚠️ Overdue (${overdue.length})`} tone="red" items={overdue} />
+              <Section label={`📅 Due today (${dueToday.length})`} tone="amber" items={dueToday} />
+              <Section label={`Upcoming (${upcoming.length})`} items={upcoming} />
             </>
-          )}
-          {view === 'daily'  && (daily.length  ? <TaskGroup items={daily}  /> : <Empty msg="No daily routines." />)}
-          {view === 'weekly' && (weekly.length ? <TaskGroup items={weekly} /> : <Empty msg="No weekly routines." />)}
-          {view === 'tasks'  && (oneOff.length ? (
-            <>
-              {overdue.length > 0 && <TaskGroup label={`⚠️ Overdue (${overdue.length})`} tone="red" items={overdue} />}
-              {dueToday.length > 0 && <TaskGroup label={`📅 Due today (${dueToday.length})`} tone="amber" items={dueToday} />}
-              {upcoming.length > 0 && <TaskGroup label={`Upcoming (${upcoming.length})`} items={upcoming} />}
-            </>
-          ) : <Empty msg="No one-off tasks." />)}
-        </div>
-      )}
+          ) : <Empty msg="No one-off tasks." />
+        )}
+      </div>
     </CardShell>
-  )
-}
-
-function Empty({ msg }: { msg: string }) {
-  return <p className="text-sm text-gray-400 italic px-5 py-6">{msg}</p>
-}
-
-function TaskGroup({ label, tone, items }: { label?: string; tone?: 'red' | 'amber'; items: TodoRow[] }) {
-  const toneClass = tone === 'red' ? 'text-red-600' : tone === 'amber' ? 'text-amber-600' : 'text-gray-400'
-  return (
-    <div className="px-5 py-1.5 border-b border-gray-50 last:border-0">
-      {label && <p className={`text-[11px] font-semibold mt-1 mb-0.5 ${toneClass}`}>{label}</p>}
-      {items.map(t => (
-        <Link key={t.id} href="/notes" className="flex items-center gap-2.5 py-1.5 hover:bg-gray-50 -mx-5 px-5 group pointer-events-auto">
-          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${t.priority === 'high' ? 'bg-red-400' : t.priority === 'medium' ? 'bg-amber-400' : 'bg-gray-300'}`} />
-          <span className="text-sm text-navy-700 flex-1 truncate group-hover:text-teal-600">{t.title}</span>
-          {t.is_carry && <span className="text-[10px] bg-red-100 text-red-600 font-bold px-1.5 py-0.5 rounded flex-shrink-0">DUE</span>}
-          {t.due_date && (t.recurrence ?? 'none') === 'none' && (
-            <span className="text-[10px] text-gray-400 flex-shrink-0">{t.due_date.slice(5)}</span>
-          )}
-        </Link>
-      ))}
-    </div>
   )
 }
 
@@ -414,20 +580,43 @@ function TaskGroup({ label, tone, items }: { label?: string; tone?: 'red' | 'amb
 
 type SopRow = { id: string; title: string; updated_at: string; profiles?: { full_name: string | null } | null; categories?: { name: string } | null }
 
-function SopsApproveCard({ sops }: { sops: Record<string, unknown>[] }) {
-  const rows = sops as SopRow[]
+function SopsApproveCard({ sops, editing }: { sops: Record<string, unknown>[]; editing: boolean }) {
+  const router = useRouter()
+  const [rows, setRows] = useState<SopRow[]>(() => sops as SopRow[])
+  const [busy, setBusy] = useState<string | null>(null)
+
+  async function approve(id: string) {
+    setBusy(id)
+    const res = await fetch(`/api/sops/${id}/approve`, { method: 'POST' }).catch(() => null)
+    if (res && res.ok) {
+      setRows(prev => prev.filter(s => s.id !== id))
+      router.refresh()
+    }
+    setBusy(null)
+  }
+
   return (
     <CardShell title="SOPs to Approve" icon={Clock} count={rows.length} color="amber">
       {rows.length === 0 ? <Empty msg="✅ Nothing waiting for approval." /> : (
         <div className="divide-y divide-gray-50 h-full overflow-y-auto">
           {rows.map(s => (
-            <Link key={s.id} href={`/sops/${s.id}/approve`} className="flex items-center justify-between px-5 py-3 hover:bg-amber-50 group pointer-events-auto">
-              <div className="min-w-0 flex-1 mr-3">
+            <div key={s.id} className="flex items-center gap-2 px-5 py-3 hover:bg-amber-50 group">
+              <Link href={`/sops/${s.id}/approve`} className="min-w-0 flex-1 pointer-events-auto">
                 <p className="text-sm font-semibold text-navy-700 truncate group-hover:text-amber-700">{s.title}</p>
                 <p className="text-xs text-gray-400 mt-0.5 truncate">By {s.profiles?.full_name ?? 'Unknown'} · {s.categories?.name ?? 'Uncategorised'}</p>
-              </div>
-              <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-amber-500 flex-shrink-0" />
-            </Link>
+              </Link>
+              {!editing && (
+                <>
+                  <button onClick={() => approve(s.id)} disabled={busy === s.id} title="Approve & publish"
+                    className="pointer-events-auto flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white text-[11px] font-semibold px-2 py-1 rounded-lg disabled:opacity-50 flex-shrink-0">
+                    {busy === s.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Approve
+                  </button>
+                  <Link href={`/sops/${s.id}/approve`} title="Review" className="pointer-events-auto text-gray-300 hover:text-amber-500 flex-shrink-0">
+                    <ChevronRight className="w-4 h-4" />
+                  </Link>
+                </>
+              )}
+            </div>
           ))}
         </div>
       )}
@@ -465,13 +654,26 @@ function QuizTeamCard({ stats }: { stats: TeamQuizStat[] }) {
 
 // ─── Chase up ──────────────────────────────────────────────────────────────────
 
-function ChaseCard({ members }: { members: MemberChase[] }) {
+function ChaseCard({ members, editing }: { members: MemberChase[]; editing: boolean }) {
+  const [nudged, setNudged] = useState<Set<string>>(new Set())
+  const [busy, setBusy] = useState<string | null>(null)
+
+  async function nudge(m: MemberChase) {
+    setBusy(m.id)
+    const res = await fetch('/api/dashboard/nudge', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: m.userId, quizTitle: m.quizTitle }),
+    }).catch(() => null)
+    if (res && res.ok) setNudged(prev => new Set(prev).add(m.id))
+    setBusy(null)
+  }
+
   return (
     <CardShell title="Chase Up" icon={AlertTriangle} count={members.length || undefined} color="amber">
       {members.length === 0 ? <Empty msg="✅ No overdue quizzes for your team!" /> : (
         <div className="divide-y divide-gray-50 h-full overflow-y-auto">
           {members.map(m => (
-            <div key={m.id} className="flex items-start gap-3 px-5 py-3">
+            <div key={m.id} className="flex items-center gap-3 px-5 py-3">
               <div className="w-7 h-7 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
                 <span className="text-amber-700 text-xs font-bold">{(m.name[0] ?? '?').toUpperCase()}</span>
               </div>
@@ -480,6 +682,16 @@ function ChaseCard({ members }: { members: MemberChase[] }) {
                 <p className="text-xs text-gray-400 truncate">{m.quizTitle}</p>
                 <p className="text-xs text-red-500 font-medium">Due: {m.dueDate}</p>
               </div>
+              {!editing && (
+                nudged.has(m.id) ? (
+                  <span className="text-[11px] text-teal-600 font-semibold flex-shrink-0 flex items-center gap-1"><Check className="w-3 h-3" /> Sent</span>
+                ) : (
+                  <button onClick={() => nudge(m)} disabled={busy === m.id} title="Send a reminder"
+                    className="pointer-events-auto flex items-center gap-1 border border-amber-300 text-amber-700 hover:bg-amber-100 text-[11px] font-semibold px-2 py-1 rounded-lg disabled:opacity-50 flex-shrink-0">
+                    {busy === m.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bell className="w-3 h-3" />} Nudge
+                  </button>
+                )
+              )}
             </div>
           ))}
         </div>

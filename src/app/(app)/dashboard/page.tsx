@@ -22,7 +22,15 @@ export default async function DashboardPage() {
   const { data: prefs } = await supabase
     .from('dashboard_preferences').select('hidden_cards, card_layout').eq('user_id', effectiveUserId).single()
   const hiddenCards: string[] = prefs?.hidden_cards ?? []
-  const cardLayout = (prefs?.card_layout ?? {}) as { order?: string[]; spans?: Record<string, number> }
+  const cardLayout = (prefs?.card_layout ?? {}) as { order?: string[]; spans?: Record<string, number>; heights?: Record<string, number> }
+
+  // Directory for in-card task editing (assignee + team pickers)
+  const [{ data: dirPeople }, { data: dirTeams }] = await Promise.all([
+    db.from('profiles').select('id, full_name').order('full_name'),
+    db.from('teams').select('id, name').order('name'),
+  ])
+  const people = (dirPeople ?? []) as { id: string; full_name: string | null }[]
+  const teamsList = (dirTeams ?? []) as { id: string; name: string }[]
 
   // ── Super admin keeps existing rich dashboard ─────────────────────────
   if (role === 'super_admin') {
@@ -42,7 +50,7 @@ export default async function DashboardPage() {
         .order('due_date', { ascending: true, nullsFirst: false }).limit(50),
     ])
     return (
-      <DashboardGrid profile={profile} role="super_admin" hiddenCards={hiddenCards} cardLayout={cardLayout} userId={effectiveUserId}
+      <DashboardGrid profile={profile} role="super_admin" hiddenCards={hiddenCards} cardLayout={cardLayout} userId={effectiveUserId} people={people} teams={teamsList}
         data={{ myTasks: myTasks ?? [], sopsPending: [], membersToChase: [], teamQuizStats: [], teamSops: [], myNotes: [], myCourses: [], mySops: [], teamName: null }}
         adminChildren={
           <AdminDashboardClient
@@ -137,6 +145,7 @@ export default async function DashboardPage() {
   return (
     <DashboardGrid
       profile={profile} role={role} hiddenCards={hiddenCards} cardLayout={cardLayout} userId={effectiveUserId}
+      people={people} teams={teamsList}
       data={{
         myTasks: myTasks ?? [], sopsPending: sopsPending ?? [],
         membersToChase, teamQuizStats, teamSops: teamSops ?? [],
