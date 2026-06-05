@@ -41,6 +41,7 @@ export function TodosClient({ currentUserId, people, myTeams }: {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [sel, setSel] = useState<Selection>({ type: 'view', key: 'all' })
   const [showTrash, setShowTrash] = useState(false)
+  const [commentTask, setCommentTask] = useState<Todo | null>(null)
 
   // filters
   const [search, setSearch] = useState('')
@@ -162,6 +163,11 @@ export function TodosClient({ currentUserId, people, myTeams }: {
   async function reorder(orderedIds: string[]) {
     await fetch('/api/todos/reorder', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: orderedIds }) }).catch(() => {})
   }
+  async function emptyTrash() {
+    if (!confirm('Permanently delete all tasks in the trash? This cannot be undone.')) return
+    setTrashTodos([])
+    await fetch(`/api/todos/trash${qs}`, { method: 'DELETE' }).catch(() => {})
+  }
 
   const selLabel = sel.type === 'list'
     ? lists.find(l => l.id === sel.id)?.name ?? 'List'
@@ -259,13 +265,33 @@ export function TodosClient({ currentUserId, people, myTeams }: {
                   onChangeStatus={(id, s) => patch(id, { status: s.name, isDone: s.is_done })}
                   onDelete={t => setDeleteTarget({ type: 'todo', id: t.id, title: t.title, mine: t.mine, ownerName: t.ownerName, canDelete: t.mine || !!t.team_id })}
                   onReorder={reorder}
+                  onOpenComments={setCommentTask}
                 />
               )}
-              <TrashSection show={showTrash} onToggle={() => setShowTrash(s => !s)} trashTodos={trashTodos} onRestoreTodo={restore} />
+              <TrashSection show={showTrash} onToggle={() => setShowTrash(s => !s)} trashTodos={trashTodos} onRestoreTodo={restore} onEmpty={emptyTrash} />
             </div>
           )}
         </div>
       </div>
+
+      {/* Comments drawer (right side) */}
+      {commentTask && (
+        <>
+          <div className="fixed inset-0 bg-black/20 z-40" onClick={() => { setCommentTask(null); loadTodos() }} />
+          <div className="fixed right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl z-50 flex flex-col">
+            <div className="flex items-start justify-between px-5 py-4 border-b border-gray-100">
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">Comments</p>
+                <p className="text-sm font-semibold text-navy-700 truncate">{commentTask.title}</p>
+              </div>
+              <button onClick={() => { setCommentTask(null); loadTodos() }} className="text-gray-400 hover:text-navy-700 flex-shrink-0"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-3">
+              <CommentsPanel todoId={commentTask.id} people={people} />
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -575,13 +601,14 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onC
 
 // ─── Table ──────────────────────────────────────────────────────────────────
 
-function TaskTable({ open, done, people, teams, statuses, lists, onToggleDone, onPatch, onChangeStatus, onDelete, onReorder }: {
+function TaskTable({ open, done, people, teams, statuses, lists, onToggleDone, onPatch, onChangeStatus, onDelete, onReorder, onOpenComments }: {
   open: Todo[]; done: Todo[]; people: Person[]; teams: Team[]; statuses: TodoStatus[]; lists: TodoList[]
   onToggleDone: (t: Todo) => void
   onPatch: (id: string, b: Record<string, unknown>) => void
   onChangeStatus: (id: string, s: TodoStatus) => void
   onDelete: (t: Todo) => void
   onReorder: (ids: string[]) => void
+  onOpenComments: (t: Todo) => void
 }) {
   const [order, setOrder] = useState<string[]>(open.map(t => t.id))
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -610,8 +637,8 @@ function TaskTable({ open, done, people, teams, statuses, lists, onToggleDone, o
   return (
     <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
       {/* Column header */}
-      <div className="grid grid-cols-[20px_18px_1fr_84px_56px_72px_28px] gap-2 items-center px-3 py-2 border-b border-gray-100 text-[10px] font-bold uppercase tracking-wide text-gray-400">
-        <span /><span /><span>Task</span><span>Status</span><span className="text-center">Priority</span><span className="text-right pr-1">Due</span><span />
+      <div className="grid grid-cols-[18px_18px_1fr_80px_40px_64px_76px_24px_24px] gap-2 items-center px-3 py-2 border-b border-gray-100 text-[10px] font-bold uppercase tracking-wide text-gray-400">
+        <span /><span /><span>Task</span><span>Status</span><span className="text-center">Prio</span><span className="text-right pr-1">Due</span><span>Assignee</span><span /><span />
       </div>
 
       {orderedOpen.map(t => (
@@ -623,6 +650,7 @@ function TaskTable({ open, done, people, teams, statuses, lists, onToggleDone, o
           onChangeStatus={s => onChangeStatus(t.id, s)}
           onPatch={b => onPatch(t.id, b)}
           onDelete={() => onDelete(t)}
+          onOpenComments={() => onOpenComments(t)}
           draggable
           onDragStart={() => { dragId.current = t.id }}
           onDragEnter={() => onEnter(t.id)}
@@ -644,6 +672,7 @@ function TaskTable({ open, done, people, teams, statuses, lists, onToggleDone, o
               onChangeStatus={s => onChangeStatus(t.id, s)}
               onPatch={b => onPatch(t.id, b)}
               onDelete={() => onDelete(t)}
+              onOpenComments={() => onOpenComments(t)}
             />
           ))}
         </>
@@ -654,22 +683,23 @@ function TaskTable({ open, done, people, teams, statuses, lists, onToggleDone, o
 
 // ─── Row ──────────────────────────────────────────────────────────────────────
 
-function TaskRow({ t, people, teams, statuses, lists, assigneeName, expanded, onToggleDone, onExpand, onChangeStatus, onPatch, onDelete, draggable, onDragStart, onDragEnter, onDragEnd }: {
+function TaskRow({ t, people, teams, statuses, lists, expanded, onToggleDone, onExpand, onChangeStatus, onPatch, onDelete, onOpenComments, draggable, onDragStart, onDragEnter, onDragEnd }: {
   t: Todo; people: Person[]; teams: Team[]; statuses: TodoStatus[]; lists: TodoList[]
   assigneeName: string | null; expanded: boolean
   onToggleDone: () => void; onExpand: () => void; onChangeStatus: (s: TodoStatus) => void
-  onPatch: (b: Record<string, unknown>) => void; onDelete: () => void
+  onPatch: (b: Record<string, unknown>) => void; onDelete: () => void; onOpenComments: () => void
   draggable?: boolean; onDragStart?: () => void; onDragEnter?: () => void; onDragEnd?: () => void
 }) {
   const isDone = t.is_done
   const isOverdue = t.due_date && !isDone && t.due_date < new Date().toISOString().slice(0, 10)
   const dueLabel = t.due_date ? new Date(t.due_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : null
   const recur = recurrenceLabel(t)
+  const comments = t.commentCount ?? 0
 
   return (
     <div className="border-b border-gray-50 last:border-0"
       onDragEnter={onDragEnter} onDragOver={e => draggable && e.preventDefault()}>
-      <div className="grid grid-cols-[20px_18px_1fr_84px_56px_72px_28px] gap-2 items-center px-3 py-2 group hover:bg-slate-50/60">
+      <div className="grid grid-cols-[18px_18px_1fr_80px_40px_64px_76px_24px_24px] gap-2 items-center px-3 py-2 group hover:bg-slate-50/60">
         {/* drag handle */}
         <span draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd}
           className={`cursor-grab active:cursor-grabbing text-gray-200 group-hover:text-gray-400 ${draggable ? '' : 'opacity-0'}`}>
@@ -685,18 +715,21 @@ function TaskRow({ t, people, teams, statuses, lists, assigneeName, expanded, on
           <span className={`text-sm truncate ${isDone ? 'text-gray-400 line-through' : 'text-navy-700'}`}>{t.title}</span>
           {t.is_carry && !isDone && <span className="text-[9px] bg-red-100 text-red-600 font-bold px-1 py-0.5 rounded flex-shrink-0">DUE</span>}
           {recur && <span className="text-[9px] text-gray-500 bg-gray-100 rounded px-1.5 py-0.5 flex-shrink-0 flex items-center gap-0.5">↻ {recur}</span>}
-          {assigneeName && <span className="text-[10px] text-teal-600 flex-shrink-0">· {t.assignedToMe ? 'You' : assigneeName}</span>}
         </button>
         {/* status */}
         <div className="min-w-0"><StatusPicker current={t.status} statuses={statuses} onChange={onChangeStatus} /></div>
-        {/* priority — click to change */}
-        <div className="flex justify-center">
-          <PriorityPicker value={t.priority} onChange={p => onPatch({ priority: p })} />
-        </div>
-        {/* due — click to change */}
-        <div className="flex justify-end pr-1">
-          <DueCell value={t.due_date} overdue={!!isOverdue} label={dueLabel} onChange={d => onPatch({ dueDate: d })} />
-        </div>
+        {/* priority */}
+        <div className="flex justify-center"><PriorityPicker value={t.priority} onChange={p => onPatch({ priority: p })} /></div>
+        {/* due */}
+        <div className="flex justify-end pr-1"><DueCell value={t.due_date} overdue={!!isOverdue} label={dueLabel} onChange={d => onPatch({ dueDate: d })} /></div>
+        {/* assignee — click to change */}
+        <div className="min-w-0"><AssigneePicker value={t.assignee_id} people={people} onChange={id => onPatch({ assigneeId: id })} /></div>
+        {/* comments indicator */}
+        <button onClick={onOpenComments} title={comments ? `${comments} comment${comments !== 1 ? 's' : ''}` : 'Add a comment'}
+          className={`flex items-center justify-center gap-0.5 ${comments ? 'text-teal-600' : 'text-gray-200 group-hover:text-gray-400'}`}>
+          <MessageSquare className="w-3.5 h-3.5" />
+          {comments > 0 && <span className="text-[10px] font-semibold">{comments}</span>}
+        </button>
         {/* delete */}
         <button onClick={onDelete} title="Delete" className="text-gray-200 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity flex justify-center">
           <Trash2 className="w-3.5 h-3.5" />
@@ -705,37 +738,88 @@ function TaskRow({ t, people, teams, statuses, lists, assigneeName, expanded, on
 
       {expanded && (
         <div className="px-3 pb-3 bg-slate-50/60">
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2 pt-2">
-            <label className="text-[10px] font-semibold text-gray-400">Priority
-              <select value={t.priority} onChange={e => onPatch({ priority: e.target.value })} className="w-full mt-0.5 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
-                <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
-              </select>
-            </label>
-            <label className="text-[10px] font-semibold text-gray-400">Due date
-              <input type="date" value={t.due_date ?? ''} onChange={e => onPatch({ dueDate: e.target.value || null })} className="w-full mt-0.5 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white" />
-            </label>
-            <label className="text-[10px] font-semibold text-gray-400">Assignee
-              <select value={t.assignee_id ?? ''} onChange={e => onPatch({ assigneeId: e.target.value || null })} className="w-full mt-0.5 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
-                <option value="">Unassigned</option>{people.map(p => <option key={p.id} value={p.id}>{p.full_name ?? 'User'}</option>)}
-              </select>
-            </label>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-2">
             <label className="text-[10px] font-semibold text-gray-400">List
               <select value={t.list_id ?? ''} onChange={e => onPatch({ listId: e.target.value || null })} className="w-full mt-0.5 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
                 <option value="">No list</option>{lists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
             </label>
+            {teams.length > 0 && (
+              <label className="text-[10px] font-semibold text-gray-400">Team
+                <select value={t.team_id ?? ''} onChange={e => onPatch({ teamId: e.target.value || null })} className="w-full mt-0.5 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
+                  <option value="">Personal</option>{teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
+                </select>
+              </label>
+            )}
           </div>
-          {teams.length > 0 && (
-            <label className="text-[10px] font-semibold text-gray-400 block mt-2 max-w-[200px]">Team
-              <select value={t.team_id ?? ''} onChange={e => onPatch({ teamId: e.target.value || null })} className="w-full mt-0.5 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
-                <option value="">Personal</option>{teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
-              </select>
-            </label>
-          )}
-          <CommentsPanel todoId={t.id} people={people} />
+          {t.detail && <p className="text-xs text-gray-500 mt-2 whitespace-pre-wrap">{t.detail}</p>}
+          <button onClick={onOpenComments} className="mt-2 text-[11px] text-teal-600 hover:underline flex items-center gap-1">
+            <MessageSquare className="w-3 h-3" /> {comments ? `View ${comments} comment${comments !== 1 ? 's' : ''}` : 'Add a comment'}
+          </button>
         </div>
       )}
     </div>
+  )
+}
+
+// ─── Assignee picker (click to reassign) ──────────────────────────────────────
+
+function initials(name: string | null) {
+  if (!name) return '?'
+  const parts = name.trim().split(/\s+/)
+  return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || '?'
+}
+
+function AssigneePicker({ value, people, onChange }: { value: string | null; people: Person[]; onChange: (id: string | null) => void }) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+  const current = people.find(p => p.id === value) ?? null
+  function toggle() {
+    if (!open && btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect()
+      setPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX - 100 })
+    }
+    setOpen(o => !o); setQ('')
+  }
+  const filtered = q ? people.filter(p => (p.full_name ?? '').toLowerCase().includes(q.toLowerCase())) : people
+  return (
+    <>
+      <button ref={btnRef} onClick={toggle} title={current?.full_name ?? 'Assign'} className="flex items-center gap-1 hover:bg-gray-100 rounded-full px-0.5 py-0.5 max-w-full">
+        {current ? (
+          <>
+            <span className="w-5 h-5 rounded-full bg-teal-100 text-teal-700 text-[9px] font-bold flex items-center justify-center flex-shrink-0">{initials(current.full_name)}</span>
+            <span className="text-[11px] text-gray-600 truncate">{(current.full_name ?? 'User').split(' ')[0]}</span>
+          </>
+        ) : (
+          <span className="w-5 h-5 rounded-full border border-dashed border-gray-300 text-gray-300 text-[11px] flex items-center justify-center flex-shrink-0">+</span>
+        )}
+      </button>
+      {open && typeof document !== 'undefined' && createPortal(
+        <>
+          <div className="fixed inset-0 z-[9998]" onClick={() => setOpen(false)} />
+          <div className="absolute z-[9999] bg-white border border-gray-200 rounded-xl shadow-xl w-52 py-1.5" style={{ top: pos.top, left: pos.left }}>
+            <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search people…"
+              className="w-[calc(100%-12px)] mx-1.5 mb-1 text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+            <div className="max-h-52 overflow-y-auto">
+              <button onClick={() => { onChange(null); setOpen(false) }} className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 text-gray-500">
+                <span className="w-5 h-5 rounded-full border border-dashed border-gray-300 text-gray-300 text-xs flex items-center justify-center">–</span> Unassigned
+                {!value && <Check className="w-3 h-3 text-teal-500 ml-auto" />}
+              </button>
+              {filtered.map(p => (
+                <button key={p.id} onClick={() => { onChange(p.id); setOpen(false) }} className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50">
+                  <span className="w-5 h-5 rounded-full bg-teal-100 text-teal-700 text-[9px] font-bold flex items-center justify-center">{initials(p.full_name)}</span>
+                  <span className="flex-1 truncate">{p.full_name ?? 'User'}</span>
+                  {value === p.id && <Check className="w-3 h-3 text-teal-500" />}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>,
+        document.body,
+      )}
+    </>
   )
 }
 

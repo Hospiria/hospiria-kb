@@ -25,6 +25,7 @@ export interface Todo {
   mine: boolean; assignedToMe: boolean; ownerName: string | null
   assigneeName: string | null; teamName: string | null
   list_id: string | null; position: number
+  commentCount?: number
 }
 
 export interface TodoList {
@@ -71,18 +72,26 @@ export function Empty({ label }: { label: string }) {
 
 // ─── Trash (works for notes OR todos) ─────────────────────────────────────────
 
-export function TrashSection({ show, onToggle, trashNotes = [], trashTodos = [], onRestoreNote, onRestoreTodo }: {
+export function TrashSection({ show, onToggle, trashNotes = [], trashTodos = [], onRestoreNote, onRestoreTodo, onEmpty }: {
   show: boolean; onToggle: () => void
   trashNotes?: Note[]; trashTodos?: Todo[]
   onRestoreNote?: (id: string) => void; onRestoreTodo?: (id: string) => void
+  onEmpty?: () => void
 }) {
   const total = trashNotes.length + trashTodos.length
   if (total === 0) return null
   return (
     <div className="mt-4">
-      <button onClick={onToggle} className="flex items-center gap-2 text-xs text-gray-400 hover:text-gray-600 font-medium mb-2">
-        <Trash2 className="w-3.5 h-3.5" /> Trash ({total}) <ChevronDown className={`w-3.5 h-3.5 transition-transform ${show ? 'rotate-180' : ''}`} />
-      </button>
+      <div className="flex items-center gap-3 mb-2">
+        <button onClick={onToggle} className="flex items-center gap-2 text-xs text-gray-400 hover:text-gray-600 font-medium">
+          <Trash2 className="w-3.5 h-3.5" /> Trash ({total}) <ChevronDown className={`w-3.5 h-3.5 transition-transform ${show ? 'rotate-180' : ''}`} />
+        </button>
+        {show && onEmpty && (
+          <button onClick={onEmpty} className="text-xs text-red-500 hover:text-red-700 font-medium">
+            Empty trash
+          </button>
+        )}
+      </div>
       {show && (
         <div className="bg-gray-50 border border-dashed border-gray-200 rounded-2xl p-4 space-y-2">
           {[...trashNotes.map(n => ({ id: n.id, label: n.title || 'Untitled', by: n.deletedByName, at: n.deleted_at, type: 'note' as const })),

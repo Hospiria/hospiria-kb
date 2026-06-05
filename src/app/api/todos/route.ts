@@ -69,12 +69,18 @@ export async function GET(request: Request) {
   const teamIds = [...new Set(rows.map(t => t.team_id).filter(Boolean) as string[])]
 
   const db = createServiceClient()
-  const [{ data: people }, { data: teams }] = await Promise.all([
+  const todoIds = rows.map(t => t.id)
+  const [{ data: people }, { data: teams }, { data: commentRows }] = await Promise.all([
     userIds.length ? db.from('profiles').select('id, full_name').in('id', userIds) : Promise.resolve({ data: [] }),
     teamIds.length ? supabase.from('teams').select('id, name').in('id', teamIds) : Promise.resolve({ data: [] }),
+    todoIds.length ? db.from('todo_comments').select('todo_id').in('todo_id', todoIds) : Promise.resolve({ data: [] }),
   ])
   const nameById = new Map((people ?? []).map((p: { id: string; full_name: string | null }) => [p.id, p.full_name]))
   const teamById = new Map((teams ?? []).map((t: { id: string; name: string }) => [t.id, t.name]))
+  const commentCount = new Map<string, number>()
+  for (const c of (commentRows ?? []) as { todo_id: string }[]) {
+    commentCount.set(c.todo_id, (commentCount.get(c.todo_id) ?? 0) + 1)
+  }
 
   const todos = rows.map(t => ({
     ...t,
@@ -84,6 +90,7 @@ export async function GET(request: Request) {
     assigneeName: t.assignee_id ? nameById.get(t.assignee_id) ?? null : null,
     teamName: t.team_id ? teamById.get(t.team_id) ?? null : null,
     deletedByName: t.deleted_by ? nameById.get(t.deleted_by) ?? null : null,
+    commentCount: commentCount.get(t.id) ?? 0,
   }))
   return NextResponse.json({ todos })
 }
