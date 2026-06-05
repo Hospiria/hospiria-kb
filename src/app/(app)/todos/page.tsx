@@ -2,10 +2,10 @@ export const dynamic = 'force-dynamic'
 
 import { redirect } from 'next/navigation'
 import { getWorkspaceData } from '@/lib/workspace-data'
-import { NotesClient } from '@/components/notes/NotesClient'
+import { TodosClient } from '@/components/todos/TodosClient'
 
-export default async function NotesPage() {
+export default async function TodosPage() {
   const data = await getWorkspaceData()
   if (!data) redirect('/login')
-  return <NotesClient currentUserId={data.currentUserId} people={data.people} myTeams={data.myTeams} />
+  return <TodosClient currentUserId={data.currentUserId} people={data.people} myTeams={data.myTeams} />
 }

@@ -588,7 +588,7 @@ function TasksCard({ tasks, people, teams, editing }: {
               </select>
             </label>
             <div className="col-span-2 flex items-center justify-between mt-1">
-              <Link href="/notes" className="text-[11px] text-teal-600 hover:underline">Open in Notes →</Link>
+              <Link href="/todos" className="text-[11px] text-teal-600 hover:underline">Open in To-dos →</Link>
               <button onClick={() => del(t.id)} className="text-[11px] text-red-400 hover:text-red-600 flex items-center gap-1">
                 <Trash2 className="w-3 h-3" /> Delete
               </button>

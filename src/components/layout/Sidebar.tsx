@@ -119,8 +119,12 @@ export function Sidebar({ profile, teamName, teams, companies, platforms, perms 
           active={pathname === '/dashboard'} />
 
         {can('notes') && (
-          <NavItem href="/notes" icon={NotebookPen} label="Notes & To-dos"
+          <NavItem href="/notes" icon={NotebookPen} label="Notes"
             active={pathname === '/notes' || pathname.startsWith('/notes/')} />
+        )}
+        {can('notes') && (
+          <NavItem href="/todos" icon={ListChecks} label="To-dos"
+            active={pathname === '/todos' || pathname.startsWith('/todos/')} />
         )}
 
         <NavItem href="/quizzes" icon={GraduationCap} label="My Courses"
