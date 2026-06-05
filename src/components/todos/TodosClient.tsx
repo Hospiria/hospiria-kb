@@ -218,7 +218,7 @@ export function TodosClient({ currentUserId, people, myTeams }: {
 
           {/* Quick add (inline, top) */}
           <QuickAdd
-            statuses={statuses} people={people} teams={myTeams}
+            statuses={statuses} people={people} teams={myTeams} lists={lists}
             currentTeamId={isTeamSpace ? space : null}
             defaults={addDefaults}
             onAdded={loadTodos}
@@ -372,18 +372,35 @@ function ListSidebar({ lists, sel, onSelect, todos, today, space, isTeamSpace, o
 
 // ─── Quick add (single line + expandable) ─────────────────────────────────────
 
-function QuickAdd({ statuses, people, teams, currentTeamId, defaults, onAdded }: {
-  statuses: TodoStatus[]; people: Person[]; teams: Team[]; currentTeamId: string | null
+function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onAdded }: {
+  statuses: TodoStatus[]; people: Person[]; teams: Team[]; lists: TodoList[]; currentTeamId: string | null
   defaults: { recurrence: 'none' | 'daily' | 'weekly'; dueDate: string | null; listId: string | null }
   onAdded: () => void
 }) {
   const [title, setTitle] = useState('')
   const [adding, setAdding] = useState(false)
   const [mode, setMode] = useState<'quick' | 'ai'>('quick')
+  const [showExtra, setShowExtra] = useState(false)
+
+  const defaultStatus = statuses.find(s => s.is_default)?.name ?? (statuses[0]?.name ?? 'To Do')
+  const [detail, setDetail] = useState('')
   const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('medium')
   const [dueDate, setDueDate] = useState('')
   const [assigneeId, setAssigneeId] = useState('')
-  const [showExtra, setShowExtra] = useState(false)
+  const [status, setStatus] = useState(defaultStatus)
+  const [recurrence, setRecurrence] = useState<'none' | 'daily' | 'weekly'>(defaults.recurrence)
+  const [dayOfWeek, setDayOfWeek] = useState(1)
+  const [weekdaysOnly, setWeekdaysOnly] = useState(false)
+  const [listId, setListId] = useState(defaults.listId ?? '')
+
+  // Keep recurrence/list in sync with the active view/list when it changes
+  useEffect(() => { setRecurrence(defaults.recurrence); setListId(defaults.listId ?? '') }, [defaults.recurrence, defaults.listId])
+
+  function reset() {
+    setTitle(''); setDetail(''); setDueDate(''); setAssigneeId(''); setPriority('medium')
+    setStatus(defaultStatus); setRecurrence(defaults.recurrence); setDayOfWeek(1); setWeekdaysOnly(false)
+    setListId(defaults.listId ?? '')
+  }
 
   async function add() {
     const t = title.trim(); if (!t || adding) return
@@ -399,16 +416,23 @@ function QuickAdd({ statuses, people, teams, currentTeamId, defaults, onAdded }:
           })
         }
       } else {
+        const selectedStatus = statuses.find(s => s.name === status)
         await fetch('/api/todos', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            title: t, priority, dueDate: dueDate || defaults.dueDate || null,
+            title: t, detail: detail || null, priority,
+            dueDate: dueDate || defaults.dueDate || null,
             assigneeId: assigneeId || null, teamId: currentTeamId,
-            recurrence: defaults.recurrence, listId: defaults.listId,
+            listId: listId || null,
+            recurrence,
+            recurrenceDayOfWeek: recurrence === 'weekly' ? dayOfWeek : null,
+            recurrenceWeekdaysOnly: recurrence === 'daily' ? weekdaysOnly : false,
+            statusName: status,
+            isDone: selectedStatus?.is_done ?? false,
           }),
         })
       }
-      setTitle(''); setDueDate(''); setAssigneeId(''); setPriority('medium')
+      reset()
       onAdded()
     } finally { setAdding(false) }
   }
@@ -416,7 +440,7 @@ function QuickAdd({ statuses, people, teams, currentTeamId, defaults, onAdded }:
   return (
     <div className="bg-white border border-gray-200 rounded-xl">
       <div className="flex items-center gap-2 px-3 py-2">
-        <button onClick={() => setMode(m => m === 'ai' ? 'quick' : 'ai')} title={mode === 'ai' ? 'AI mode on' : 'Switch to AI'}
+        <button onClick={() => setMode(m => m === 'ai' ? 'quick' : 'ai')} title={mode === 'ai' ? 'AI mode on — click for manual' : 'Switch to AI'}
           className={`p-1 rounded-md flex-shrink-0 ${mode === 'ai' ? 'bg-teal-600 text-white' : 'text-gray-400 hover:bg-gray-100'}`}>
           <Sparkles className="w-4 h-4" />
         </button>
@@ -424,8 +448,8 @@ function QuickAdd({ statuses, people, teams, currentTeamId, defaults, onAdded }:
           placeholder={mode === 'ai' ? 'Describe a task — AI fills the details…' : 'Add a task, press Enter…'}
           className="flex-1 text-sm bg-transparent focus:outline-none placeholder:text-gray-400" />
         {mode === 'quick' && (
-          <button onClick={() => setShowExtra(s => !s)} className="p-1 text-gray-300 hover:text-gray-600 flex-shrink-0" title="More fields">
-            <MoreHorizontal className="w-4 h-4" />
+          <button onClick={() => setShowExtra(s => !s)} className={`p-1 rounded flex-shrink-0 ${showExtra ? 'text-teal-600 bg-teal-50' : 'text-gray-300 hover:text-gray-600'}`} title="Set all fields">
+            <SlidersHorizontal className="w-4 h-4" />
           </button>
         )}
         <button onClick={add} disabled={!title.trim() || adding}
@@ -433,16 +457,58 @@ function QuickAdd({ statuses, people, teams, currentTeamId, defaults, onAdded }:
           {adding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Add
         </button>
       </div>
+
       {mode === 'quick' && showExtra && (
-        <div className="flex flex-wrap items-center gap-2 px-3 pb-2.5 pt-0.5 border-t border-gray-50">
-          <select value={priority} onChange={e => setPriority(e.target.value as 'low'|'medium'|'high')} className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
-            <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
-          </select>
-          <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white" />
-          <select value={assigneeId} onChange={e => setAssigneeId(e.target.value)} className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white max-w-[140px]">
-            <option value="">Unassigned</option>
-            {people.map(p => <option key={p.id} value={p.id}>{p.full_name ?? 'User'}</option>)}
-          </select>
+        <div className="border-t border-gray-100 px-3 py-3 space-y-2.5">
+          <textarea value={detail} onChange={e => setDetail(e.target.value)} rows={2} placeholder="Details (optional)"
+            className="w-full resize-none text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-teal-500" />
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <label className="text-[10px] font-semibold text-gray-400">Status
+              <select value={status} onChange={e => setStatus(e.target.value)} className="w-full mt-0.5 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
+                {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+              </select>
+            </label>
+            <label className="text-[10px] font-semibold text-gray-400">Priority
+              <select value={priority} onChange={e => setPriority(e.target.value as 'low'|'medium'|'high')} className="w-full mt-0.5 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
+                <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
+              </select>
+            </label>
+            <label className="text-[10px] font-semibold text-gray-400">Recurrence
+              <select value={recurrence} onChange={e => setRecurrence(e.target.value as 'none'|'daily'|'weekly')} className="w-full mt-0.5 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
+                <option value="none">One-off</option><option value="daily">Daily</option><option value="weekly">Weekly</option>
+              </select>
+            </label>
+
+            {recurrence === 'weekly' && (
+              <label className="text-[10px] font-semibold text-gray-400 sm:col-span-3">Repeats on
+                <div className="flex gap-1 mt-1 flex-wrap">
+                  {[['Mon',1],['Tue',2],['Wed',3],['Thu',4],['Fri',5],['Sat',6],['Sun',0]].map(([label, val]) => (
+                    <button key={val} type="button" onClick={() => setDayOfWeek(val as number)}
+                      className={`px-2 py-1 rounded-lg text-xs font-medium border transition-colors ${dayOfWeek === val ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-gray-600 border-gray-200 hover:border-teal-300'}`}>{label}</button>
+                  ))}
+                </div>
+              </label>
+            )}
+            {recurrence === 'daily' && (
+              <label className="text-[10px] font-semibold text-gray-400 flex items-center gap-2 cursor-pointer sm:col-span-3 mt-1">
+                <input type="checkbox" checked={weekdaysOnly} onChange={e => setWeekdaysOnly(e.target.checked)} className="rounded text-teal-500" /> Weekdays only (Mon–Fri)
+              </label>
+            )}
+
+            <label className="text-[10px] font-semibold text-gray-400">Due date
+              <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full mt-0.5 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white" />
+            </label>
+            <label className="text-[10px] font-semibold text-gray-400">Assign to
+              <select value={assigneeId} onChange={e => setAssigneeId(e.target.value)} className="w-full mt-0.5 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
+                <option value="">Nobody</option>{people.map(p => <option key={p.id} value={p.id}>{p.full_name ?? 'User'}</option>)}
+              </select>
+            </label>
+            <label className="text-[10px] font-semibold text-gray-400">List
+              <select value={listId} onChange={e => setListId(e.target.value)} className="w-full mt-0.5 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
+                <option value="">No list</option>{lists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+            </label>
+          </div>
         </div>
       )}
     </div>
