@@ -406,15 +406,34 @@ function NoteEditor({ note, people, currentUserId, isTeamNote, onBack, onChanged
   function insertSlashLink(item: { text: string; href: string }) {
     if (!editor || slashStartPos.current === null) return
     setSlashOpen(false)
-    const from = slashStartPos.current           // position of the "/"
-    const to = editor.state.selection.from       // current cursor (end of typed query)
-    editor.chain().focus()
-      .deleteRange({ from, to })                 // remove "/query"
+    const from = slashStartPos.current
+    const to = editor.state.selection.from
+    editor
+      .chain()
+      .focus()
+      .deleteRange({ from, to })          // remove "/query"
+      // Insert the linked text
       .insertContent(
         item.href
-          ? `<a href="${item.href}" target="_blank" rel="noopener noreferrer">${item.text}</a> `
-          : `${item.text} `
+          ? `<a href="${item.href}" target="_blank" rel="noopener noreferrer">${item.text}</a>`
+          : item.text
       )
+      // Move cursor past the link, then insert a plain space so the
+      // link mark is not active and typing continues as normal text.
+      .command(({ tr, dispatch }) => {
+        if (dispatch) {
+          // Insert a plain space at end of link with all marks removed
+          const end = tr.selection.from
+          tr.insertText(' ', end)
+          // Unset all marks on that space
+          tr.removeMark(end, end + 1)
+          tr.setSelection(
+            // @ts-expect-error — TextSelection imported internally by tiptap
+            editor.state.selection.constructor.create(tr.doc, end + 1)
+          )
+        }
+        return true
+      })
       .run()
     slashStartPos.current = null
   }
@@ -439,7 +458,7 @@ function NoteEditor({ note, people, currentUserId, isTeamNote, onBack, onChanged
     extensions: [
       StarterKit,
       Underline,
-      LinkExt.configure({ openOnClick: true }),
+      LinkExt.extend({ inclusive: false }).configure({ openOnClick: true }),
       Image.configure({ allowBase64: false }),
       Placeholder.configure({ placeholder: 'Write anything… type / to link, @ to mention someone' }),
       TextStyle,
