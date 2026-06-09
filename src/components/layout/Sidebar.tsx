@@ -28,7 +28,9 @@ export function Sidebar({ profile, teamName, teams, companies, platforms, perms 
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const activeTeam = searchParams.get('team')
+  // Support both legacy ?company= param and the new /companies/[id] route
   const activeCompany = searchParams.get('company')
+    ?? (pathname.startsWith('/companies/') ? pathname.split('/')[2] : null)
   const activePlatform = searchParams.get('platform')
   const can = (feature: FeatureKey, level: 'view' | 'edit' = 'view') => {
     const p = perms[feature]
@@ -195,7 +197,7 @@ export function Sidebar({ profile, teamName, teams, companies, platforms, perms 
                 {filteredCompanies.map(company => (
                   <NavItem
                     key={company.id}
-                    href={`/sops?company=${company.id}`}
+                    href={`/companies/${company.id}`}
                     icon={Briefcase}
                     label={company.name}
                     active={activeCompany === company.id}
