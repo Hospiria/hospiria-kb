@@ -37,11 +37,12 @@ export default async function CompanyPage({ params }: { params: { id: string } }
   let sops: {
     id: string; title: string; status: string; category_id: string | null
     categories: { id: string; name: string } | null
+    created_at: string
   }[] = []
   if (sopIds.length > 0) {
     const { data } = await supabase
       .from('sops')
-      .select('id, title, status, category_id, categories(id, name)')
+      .select('id, title, status, category_id, categories(id, name), created_at')
       .in('id', sopIds)
       .order('title')
     sops = (data ?? []) as unknown as typeof sops
@@ -55,7 +56,7 @@ export default async function CompanyPage({ params }: { params: { id: string } }
   const noteIds = (noteLinks ?? []).map((r: { note_id: string }) => r.note_id)
 
   let allNotes: {
-    id: string; title: string; updated_at: string
+    id: string; title: string; updated_at: string; created_at: string
     team_id: string | null; owner_id: string; pinned: boolean
     deleted_at: string | null
     teams?: { name: string } | null
@@ -63,7 +64,7 @@ export default async function CompanyPage({ params }: { params: { id: string } }
   if (noteIds.length > 0) {
     const { data } = await supabase
       .from('notes')
-      .select('id, title, updated_at, team_id, owner_id, pinned, deleted_at, teams(name)')
+      .select('id, title, updated_at, created_at, team_id, owner_id, pinned, deleted_at, teams(name)')
       .in('id', noteIds)
       .is('deleted_at', null)
       .order('pinned', { ascending: false })
@@ -84,12 +85,12 @@ export default async function CompanyPage({ params }: { params: { id: string } }
   let allTodos: {
     id: string; title: string; is_done: boolean; priority: string
     due_date: string | null; team_id: string | null; owner_id: string
-    status: string; deleted_at: string | null
+    status: string; deleted_at: string | null; created_at: string; updated_at: string
   }[] = []
   if (todoIds.length > 0) {
     const { data } = await supabase
       .from('todos')
-      .select('id, title, is_done, priority, due_date, team_id, owner_id, status, deleted_at')
+      .select('id, title, is_done, priority, due_date, team_id, owner_id, status, deleted_at, created_at, updated_at')
       .in('id', todoIds)
       .is('deleted_at', null)
       .order('is_done', { ascending: true })
