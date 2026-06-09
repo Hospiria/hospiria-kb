@@ -71,23 +71,96 @@ function isOverdue(due: string | null) {
 type DateRange = 'all' | 'today' | 'week' | 'month' | 'quarter'
 
 const DATE_RANGE_OPTIONS: { value: DateRange; label: string }[] = [
-  { value: 'all',     label: 'All time'   },
-  { value: 'today',   label: 'Today'      },
-  { value: 'week',    label: 'This week'  },
-  { value: 'month',   label: 'This month' },
+  { value: 'all',     label: 'All time'      },
+  { value: 'today',   label: 'Today'         },
+  { value: 'week',    label: 'This week'     },
+  { value: 'month',   label: 'This month'    },
   { value: 'quarter', label: 'Last 3 months' },
 ]
 
 const DATE_RANGE_MS: Record<Exclude<DateRange, 'all'>, number> = {
-  today:   24 * 3600 * 1000,
-  week:     7 * 24 * 3600 * 1000,
-  month:   30 * 24 * 3600 * 1000,
-  quarter: 90 * 24 * 3600 * 1000,
+  today:    24 * 3600 * 1000,
+  week:      7 * 24 * 3600 * 1000,
+  month:    30 * 24 * 3600 * 1000,
+  quarter:  90 * 24 * 3600 * 1000,
 }
 
-function isInRange(dateStr: string, range: DateRange): boolean {
+/** Returns true when dateStr falls within the active filter window.
+ *  Custom from/to takes precedence over the quick chip. */
+function isInDateFilter(
+  dateStr: string,
+  range: DateRange,
+  fromDate: string,
+  toDate: string,
+): boolean {
+  const d = new Date(dateStr).getTime()
+  if (fromDate || toDate) {
+    const from = fromDate ? new Date(fromDate).getTime() : 0
+    const to   = toDate   ? new Date(toDate + 'T23:59:59').getTime() : Infinity
+    return d >= from && d <= to
+  }
   if (range === 'all') return true
-  return Date.now() - new Date(dateStr).getTime() <= DATE_RANGE_MS[range]
+  return Date.now() - d <= DATE_RANGE_MS[range]
+}
+
+function DateRangeFilter({
+  range, onRangeChange,
+  fromDate, onFromChange,
+  toDate, onToChange,
+}: {
+  range: DateRange; onRangeChange: (r: DateRange) => void
+  fromDate: string; onFromChange: (d: string) => void
+  toDate: string;   onToChange:   (d: string) => void
+}) {
+  const hasCustom = !!fromDate || !!toDate
+
+  function pickChip(r: DateRange) {
+    onFromChange(''); onToChange(''); onRangeChange(r)
+  }
+  function clearCustom() {
+    onFromChange(''); onToChange(''); onRangeChange('all')
+  }
+
+  return (
+    <div className="space-y-2">
+      {/* Quick chips */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mr-0.5">Period</span>
+        {DATE_RANGE_OPTIONS.map(o => (
+          <FilterChip key={o.value} active={!hasCustom && range === o.value} onClick={() => pickChip(o.value)}>
+            {o.label}
+          </FilterChip>
+        ))}
+      </div>
+      {/* Custom date inputs */}
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+          <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">From</span>
+          <input
+            type="date"
+            value={fromDate}
+            onChange={e => { onFromChange(e.target.value); onRangeChange('all') }}
+            className="flex-1 min-w-0 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-gray-600 transition-colors"
+          />
+        </div>
+        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+          <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">To</span>
+          <input
+            type="date"
+            value={toDate}
+            onChange={e => { onToChange(e.target.value); onRangeChange('all') }}
+            className="flex-1 min-w-0 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-gray-600 transition-colors"
+          />
+        </div>
+        {hasCustom && (
+          <button onClick={clearCustom} title="Clear dates"
+            className="flex-shrink-0 p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // ── Search bar ────────────────────────────────────────────────────────────────
@@ -223,6 +296,8 @@ function NotesPanel({ teamNotes, myNotes }: { teamNotes: NoteItem[]; myNotes: No
   const [scopeFilter, setScopeFilter] = useState<'all' | 'team' | 'personal'>('all')
   const [sortBy, setSortBy] = useState<'recent' | 'pinned'>('recent')
   const [dateRange, setDateRange] = useState<DateRange>('all')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
 
   const allNotes = scopeFilter === 'team'
     ? teamNotes
@@ -233,7 +308,7 @@ function NotesPanel({ teamNotes, myNotes }: { teamNotes: NoteItem[]; myNotes: No
   const filtered = allNotes
     .filter(n =>
       (!query || (n.title || '').toLowerCase().includes(query.toLowerCase())) &&
-      isInRange(n.updated_at, dateRange)
+      isInDateFilter(n.updated_at, dateRange, fromDate, toDate)
     )
     .sort((a, b) => {
       if (sortBy === 'pinned') {
@@ -244,7 +319,7 @@ function NotesPanel({ teamNotes, myNotes }: { teamNotes: NoteItem[]; myNotes: No
 
   const filteredTeam = filtered.filter(n => n.team_id !== null)
   const filteredPersonal = filtered.filter(n => n.team_id === null)
-  const hasFilters = !!query || scopeFilter !== 'all' || dateRange !== 'all'
+  const hasFilters = !!query || scopeFilter !== 'all' || dateRange !== 'all' || !!fromDate || !!toDate
 
   return (
     <div className="flex flex-col h-full">
@@ -264,15 +339,11 @@ function NotesPanel({ teamNotes, myNotes }: { teamNotes: NoteItem[]; myNotes: No
             <FilterChip active={sortBy === 'pinned'} onClick={() => setSortBy('pinned')}>Pinned first</FilterChip>
           </div>
         </div>
-        {/* Date range */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mr-0.5">Period</span>
-          {DATE_RANGE_OPTIONS.map(o => (
-            <FilterChip key={o.value} active={dateRange === o.value} onClick={() => setDateRange(o.value)}>
-              {o.label}
-            </FilterChip>
-          ))}
-        </div>
+        <DateRangeFilter
+          range={dateRange} onRangeChange={setDateRange}
+          fromDate={fromDate} onFromChange={setFromDate}
+          toDate={toDate}   onToChange={setToDate}
+        />
       </div>
 
       {/* List */}
@@ -351,6 +422,8 @@ function TasksPanel({ teamTodos, myTodos }: { teamTodos: TodoItem[]; myTodos: To
   const [priorityFilter, setPriorityFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all')
   const [scopeFilter, setScopeFilter] = useState<'all' | 'team' | 'personal'>('all')
   const [dateRange, setDateRange] = useState<DateRange>('all')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
   const [showDoneHistory, setShowDoneHistory] = useState(true)
 
   const allTodos = scopeFilter === 'team'
@@ -366,14 +439,13 @@ function TasksPanel({ teamTodos, myTodos }: { teamTodos: TodoItem[]; myTodos: To
       t.assignees.some(a => (a.full_name ?? '').toLowerCase().includes(q))
     const matchStatus = statusFilter === 'all' || (statusFilter === 'open' ? !t.is_done : t.is_done)
     const matchPriority = priorityFilter === 'all' || t.priority === priorityFilter
-    // For open tasks: filter by created_at (when was it added)
-    // For done tasks: filter by updated_at (when was it completed)
+    // Open tasks: filter by created_at; done tasks: filter by updated_at (completion date)
     const dateField = t.is_done ? t.updated_at : t.created_at
-    const matchDate = isInRange(dateField, dateRange)
+    const matchDate = isInDateFilter(dateField, dateRange, fromDate, toDate)
     return matchSearch && matchStatus && matchPriority && matchDate
   })
 
-  const hasFilters = !!query || statusFilter !== 'all' || priorityFilter !== 'all' || dateRange !== 'all'
+  const hasFilters = !!query || statusFilter !== 'all' || priorityFilter !== 'all' || dateRange !== 'all' || !!fromDate || !!toDate
 
   const openTodos = filtered.filter(t => !t.is_done)
     .sort((a, b) => {
@@ -414,15 +486,11 @@ function TasksPanel({ teamTodos, myTodos }: { teamTodos: TodoItem[]; myTodos: To
             </FilterChip>
           ))}
         </div>
-        {/* Date range */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mr-0.5">Period</span>
-          {DATE_RANGE_OPTIONS.map(o => (
-            <FilterChip key={o.value} active={dateRange === o.value} onClick={() => setDateRange(o.value)}>
-              {o.label}
-            </FilterChip>
-          ))}
-        </div>
+        <DateRangeFilter
+          range={dateRange} onRangeChange={setDateRange}
+          fromDate={fromDate} onFromChange={setFromDate}
+          toDate={toDate}   onToChange={setToDate}
+        />
       </div>
 
       {/* List */}
