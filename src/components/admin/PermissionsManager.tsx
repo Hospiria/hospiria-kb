@@ -242,21 +242,41 @@ function PersonRow({ feature, inherited, state, onChange }: {
 }) {
   const f = FEATURE_BY_KEY[feature]
   const inheritedLabel = inherited.edit ? 'Edit' : inherited.view ? 'View only' : 'No access'
+
+  // Warn when the user-level override is RESTRICTING what their role allows.
+  // e.g. role = Edit, override = View only  →  override silently wins at the DB layer.
+  const isRestricting =
+    state !== 'inherit' &&
+    ((inherited.edit && state !== 'edit') ||    // role has edit, override removes it
+     (inherited.view && state === 'none'))       // role has view, override removes that too
+
   return (
-    <div className="grid grid-cols-[1fr_auto] items-center gap-4 px-4 py-2.5 border-b border-gray-50 last:border-b-0">
-      <FeatureLabel featureKey={feature} />
-      <select
-        value={state}
-        onChange={e => onChange(e.target.value as OverrideState)}
-        className={`text-sm border rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-teal-500 ${
-          state === 'inherit' ? 'border-gray-200 text-gray-500' : 'border-teal-300 text-teal-800 bg-teal-50'
-        }`}
-      >
-        <option value="inherit">Inherit ({inheritedLabel})</option>
-        <option value="none">No access</option>
-        {f.hasView && <option value="view">View only</option>}
-        {f.hasEdit && <option value="edit">Edit</option>}
-      </select>
+    <div className="border-b border-gray-50 last:border-b-0">
+      <div className="grid grid-cols-[1fr_auto] items-center gap-4 px-4 py-2.5">
+        <FeatureLabel featureKey={feature} />
+        <select
+          value={state}
+          onChange={e => onChange(e.target.value as OverrideState)}
+          className={`text-sm border rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-teal-500 ${
+            isRestricting
+              ? 'border-amber-400 text-amber-800 bg-amber-50'
+              : state === 'inherit'
+              ? 'border-gray-200 text-gray-500'
+              : 'border-teal-300 text-teal-800 bg-teal-50'
+          }`}
+        >
+          <option value="inherit">Inherit ({inheritedLabel})</option>
+          <option value="none">No access</option>
+          {f.hasView && <option value="view">View only</option>}
+          {f.hasEdit && <option value="edit">Edit</option>}
+        </select>
+      </div>
+      {isRestricting && (
+        <p className="px-4 pb-2 text-xs text-amber-700 flex items-center gap-1">
+          ⚠️ This override restricts the <strong>{inheritedLabel}</strong> access their role grants.
+          Set to &ldquo;Inherit&rdquo; to restore role defaults.
+        </p>
+      )}
     </div>
   )
 }
