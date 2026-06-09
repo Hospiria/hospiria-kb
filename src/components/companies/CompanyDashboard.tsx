@@ -66,6 +66,30 @@ function isOverdue(due: string | null) {
   return new Date(due) < new Date(new Date().toDateString())
 }
 
+// ── Date range filter ─────────────────────────────────────────────────────────
+
+type DateRange = 'all' | 'today' | 'week' | 'month' | 'quarter'
+
+const DATE_RANGE_OPTIONS: { value: DateRange; label: string }[] = [
+  { value: 'all',     label: 'All time'   },
+  { value: 'today',   label: 'Today'      },
+  { value: 'week',    label: 'This week'  },
+  { value: 'month',   label: 'This month' },
+  { value: 'quarter', label: 'Last 3 months' },
+]
+
+const DATE_RANGE_MS: Record<Exclude<DateRange, 'all'>, number> = {
+  today:   24 * 3600 * 1000,
+  week:     7 * 24 * 3600 * 1000,
+  month:   30 * 24 * 3600 * 1000,
+  quarter: 90 * 24 * 3600 * 1000,
+}
+
+function isInRange(dateStr: string, range: DateRange): boolean {
+  if (range === 'all') return true
+  return Date.now() - new Date(dateStr).getTime() <= DATE_RANGE_MS[range]
+}
+
 // ── Search bar ────────────────────────────────────────────────────────────────
 
 function SearchInput({ value, onChange, placeholder = 'Search…' }: {
@@ -198,6 +222,7 @@ function NotesPanel({ teamNotes, myNotes }: { teamNotes: NoteItem[]; myNotes: No
   const [query, setQuery] = useState('')
   const [scopeFilter, setScopeFilter] = useState<'all' | 'team' | 'personal'>('all')
   const [sortBy, setSortBy] = useState<'recent' | 'pinned'>('recent')
+  const [dateRange, setDateRange] = useState<DateRange>('all')
 
   const allNotes = scopeFilter === 'team'
     ? teamNotes
@@ -206,7 +231,10 @@ function NotesPanel({ teamNotes, myNotes }: { teamNotes: NoteItem[]; myNotes: No
     : [...teamNotes, ...myNotes]
 
   const filtered = allNotes
-    .filter(n => !query || (n.title || '').toLowerCase().includes(query.toLowerCase()))
+    .filter(n =>
+      (!query || (n.title || '').toLowerCase().includes(query.toLowerCase())) &&
+      isInRange(n.updated_at, dateRange)
+    )
     .sort((a, b) => {
       if (sortBy === 'pinned') {
         if (a.pinned !== b.pinned) return b.pinned ? 1 : -1
@@ -216,6 +244,7 @@ function NotesPanel({ teamNotes, myNotes }: { teamNotes: NoteItem[]; myNotes: No
 
   const filteredTeam = filtered.filter(n => n.team_id !== null)
   const filteredPersonal = filtered.filter(n => n.team_id === null)
+  const hasFilters = !!query || scopeFilter !== 'all' || dateRange !== 'all'
 
   return (
     <div className="flex flex-col h-full">
@@ -235,6 +264,15 @@ function NotesPanel({ teamNotes, myNotes }: { teamNotes: NoteItem[]; myNotes: No
             <FilterChip active={sortBy === 'pinned'} onClick={() => setSortBy('pinned')}>Pinned first</FilterChip>
           </div>
         </div>
+        {/* Date range */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mr-0.5">Period</span>
+          {DATE_RANGE_OPTIONS.map(o => (
+            <FilterChip key={o.value} active={dateRange === o.value} onClick={() => setDateRange(o.value)}>
+              {o.label}
+            </FilterChip>
+          ))}
+        </div>
       </div>
 
       {/* List */}
@@ -242,7 +280,7 @@ function NotesPanel({ teamNotes, myNotes }: { teamNotes: NoteItem[]; myNotes: No
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-16 text-gray-400">
             <StickyNote className="w-8 h-8 text-gray-200" />
-            <p className="text-sm">{query || scopeFilter !== 'all' ? 'No notes match your filters' : 'No notes linked yet'}</p>
+            <p className="text-sm">{hasFilters ? 'No notes match your filters' : 'No notes linked yet'}</p>
             <Link href="/notes" className="flex items-center gap-1 text-xs text-teal-600 hover:text-teal-700">
               <Plus className="w-3 h-3" /> Create a note
             </Link>
@@ -312,6 +350,7 @@ function TasksPanel({ teamTodos, myTodos }: { teamTodos: TodoItem[]; myTodos: To
   const [statusFilter, setStatusFilter] = useState<'open' | 'done' | 'all'>('all')
   const [priorityFilter, setPriorityFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all')
   const [scopeFilter, setScopeFilter] = useState<'all' | 'team' | 'personal'>('all')
+  const [dateRange, setDateRange] = useState<DateRange>('all')
   const [showDoneHistory, setShowDoneHistory] = useState(true)
 
   const allTodos = scopeFilter === 'team'
@@ -327,8 +366,14 @@ function TasksPanel({ teamTodos, myTodos }: { teamTodos: TodoItem[]; myTodos: To
       t.assignees.some(a => (a.full_name ?? '').toLowerCase().includes(q))
     const matchStatus = statusFilter === 'all' || (statusFilter === 'open' ? !t.is_done : t.is_done)
     const matchPriority = priorityFilter === 'all' || t.priority === priorityFilter
-    return matchSearch && matchStatus && matchPriority
+    // For open tasks: filter by created_at (when was it added)
+    // For done tasks: filter by updated_at (when was it completed)
+    const dateField = t.is_done ? t.updated_at : t.created_at
+    const matchDate = isInRange(dateField, dateRange)
+    return matchSearch && matchStatus && matchPriority && matchDate
   })
+
+  const hasFilters = !!query || statusFilter !== 'all' || priorityFilter !== 'all' || dateRange !== 'all'
 
   const openTodos = filtered.filter(t => !t.is_done)
     .sort((a, b) => {
@@ -369,6 +414,15 @@ function TasksPanel({ teamTodos, myTodos }: { teamTodos: TodoItem[]; myTodos: To
             </FilterChip>
           ))}
         </div>
+        {/* Date range */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mr-0.5">Period</span>
+          {DATE_RANGE_OPTIONS.map(o => (
+            <FilterChip key={o.value} active={dateRange === o.value} onClick={() => setDateRange(o.value)}>
+              {o.label}
+            </FilterChip>
+          ))}
+        </div>
       </div>
 
       {/* List */}
@@ -376,7 +430,7 @@ function TasksPanel({ teamTodos, myTodos }: { teamTodos: TodoItem[]; myTodos: To
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-16 text-gray-400">
             <CheckSquare className="w-8 h-8 text-gray-200" />
-            <p className="text-sm">{query || statusFilter !== 'all' || priorityFilter !== 'all' ? 'No tasks match your filters' : 'No tasks linked yet'}</p>
+            <p className="text-sm">{hasFilters ? 'No tasks match your filters' : 'No tasks linked yet'}</p>
             <Link href="/todos" className="flex items-center gap-1 text-xs text-teal-600 hover:text-teal-700">
               <Plus className="w-3 h-3" /> Create a task
             </Link>
