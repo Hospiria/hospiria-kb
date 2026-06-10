@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { Sparkles, Loader2, Check, Trash2, ChevronDown, Calendar, User, Users, ExternalLink } from 'lucide-react'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { Sparkles, Loader2, Check, Trash2, ChevronDown, Calendar, User, Users, ExternalLink, Pencil } from 'lucide-react'
 import Link from 'next/link'
 
 type TodoView = 'all' | 'daily' | 'weekly' | 'tasks'
@@ -385,6 +385,33 @@ function TodoCard({ t, expanded, onExpand, onToggle, onDelete, people, teams, on
   people: Person[]; teams: Team[]; onPatch: (b: Record<string, unknown>) => void
 }) {
   const isDone = t.is_done
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleVal, setTitleVal] = useState(t.title)
+  const [detailVal, setDetailVal] = useState(t.detail ?? '')
+  const titleRef = useRef<HTMLInputElement>(null)
+
+  // Keep local state in sync when parent refreshes
+  useEffect(() => { setTitleVal(t.title) }, [t.title])
+  useEffect(() => { setDetailVal(t.detail ?? '') }, [t.detail])
+
+  function startEditTitle() {
+    if (isDone) return
+    setEditingTitle(true)
+    setTimeout(() => titleRef.current?.select(), 0)
+  }
+
+  function commitTitle() {
+    setEditingTitle(false)
+    const trimmed = titleVal.trim()
+    if (!trimmed) { setTitleVal(t.title); return }
+    if (trimmed !== t.title) onPatch({ title: trimmed })
+  }
+
+  function commitDetail() {
+    const trimmed = detailVal.trim()
+    if (trimmed !== (t.detail ?? '')) onPatch({ detail: trimmed || null })
+  }
+
   return (
     <div className="bg-white border border-gray-200 rounded-xl">
       <div className="flex items-start gap-2.5 p-3">
@@ -393,12 +420,31 @@ function TodoCard({ t, expanded, onExpand, onToggle, onDelete, people, teams, on
           {isDone && <Check className="w-3 h-3 text-white" />}
         </button>
         <div className="flex-1 min-w-0">
-          <div className="flex items-start gap-1 flex-wrap">
-            <p className={`text-sm ${isDone ? 'text-gray-400 line-through' : 'text-navy-700'}`}>{t.title}</p>
-            {t.is_carry && !isDone && (
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-600 flex-shrink-0">DUE</span>
-            )}
-          </div>
+          {editingTitle ? (
+            <input
+              ref={titleRef}
+              value={titleVal}
+              onChange={e => setTitleVal(e.target.value)}
+              onBlur={commitTitle}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); commitTitle() }
+                if (e.key === 'Escape') { setTitleVal(t.title); setEditingTitle(false) }
+              }}
+              className="w-full text-sm text-navy-700 border border-teal-400 rounded-lg px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-teal-400"
+            />
+          ) : (
+            <div className="flex items-start gap-1 flex-wrap group">
+              <p className={`text-sm ${isDone ? 'text-gray-400 line-through' : 'text-navy-700'}`}>{t.title}</p>
+              {t.is_carry && !isDone && (
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-600 flex-shrink-0">DUE</span>
+              )}
+              {!isDone && (
+                <button onClick={startEditTitle} className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-300 hover:text-teal-500 flex-shrink-0">
+                  <Pencil className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 mt-1 text-[11px] text-gray-400">
             <span className="flex items-center gap-1"><span className={`w-1.5 h-1.5 rounded-full ${PRIORITY_DOT[t.priority]}`} />{t.priority}</span>
             {t.due_date && <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{t.due_date}</span>}
@@ -412,7 +458,18 @@ function TodoCard({ t, expanded, onExpand, onToggle, onDelete, people, teams, on
         <button onClick={onExpand} className="p-1 text-gray-300 hover:text-gray-500 flex-shrink-0"><ChevronDown className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} /></button>
       </div>
       {expanded && (
-        <div className="border-t border-gray-100 p-3 space-y-2 bg-slate-50 rounded-b-xl">
+        <div className="border-t border-gray-100 p-3 space-y-2.5 bg-slate-50 rounded-b-xl">
+          {/* Notes / detail */}
+          <label className="block text-[10px] text-gray-500">Notes
+            <textarea
+              value={detailVal}
+              onChange={e => setDetailVal(e.target.value)}
+              onBlur={commitDetail}
+              rows={2}
+              placeholder="Add extra details…"
+              className="w-full mt-0.5 text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white resize-none focus:outline-none focus:ring-1 focus:ring-teal-400"
+            />
+          </label>
           <div className="grid grid-cols-2 gap-2">
             <label className="text-[10px] text-gray-500">Priority
               <select value={t.priority} onChange={e => onPatch({ priority: e.target.value })} className="w-full mt-0.5 text-xs border border-gray-200 rounded px-1.5 py-1 bg-white">
