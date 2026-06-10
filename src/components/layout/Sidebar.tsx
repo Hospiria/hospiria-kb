@@ -8,7 +8,7 @@ import { RoleBadge } from '@/components/ui/StatusBadge'
 import {
   LayoutDashboard, Users, Building2, Upload,
   BookOpen, Users as TeamIcon, PlugZap, ListChecks, GraduationCap,
-  Briefcase, Layers, ChevronDown, Search, Library, Tag, Brain, NotebookPen, CircleDot, Bell,
+  Briefcase, Layers, ChevronDown, Search, Library, Tag, Brain, NotebookPen, CircleDot, Bell, Activity,
 } from 'lucide-react'
 import { useState } from 'react'
 import { FeatureKey, Perm } from '@/lib/permissions'
@@ -52,6 +52,7 @@ export function Sidebar({ profile, teamName, teams, companies, platforms, perms 
     { label: 'Notifications', href: '/admin/notifications', icon: Bell, feature: 'notifications', level: 'view' },
     { label: 'Manage Quizzes', href: '/admin/quizzes', icon: GraduationCap, feature: 'quizzes', level: 'edit' },
     { label: 'To-do Statuses', href: '/admin/statuses', icon: CircleDot, feature: 'notes', level: 'edit' },
+    { label: 'Activity Log', href: '/admin/activity-log', icon: Activity, feature: 'activity_log', level: 'view' },
   ]
   const adminItems = adminNav.filter(item => can(item.feature, item.level))
 

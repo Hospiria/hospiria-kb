@@ -14,8 +14,18 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     const { error } = await supabase.from('todos')
       .update({ deleted_at: null, deleted_by: null }).eq('id', params.id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    createServiceClient().from('todo_events').insert({
+      todo_id: params.id, event_type: 'restored', actor_id: auth.userId,
+    }).then()
     return NextResponse.json({ success: true })
   }
+
+  // Snapshot current state for event logging
+  const { data: prePatch } = await supabase
+    .from('todos')
+    .select('title, status, priority, due_date, assignee_id, is_done')
+    .eq('id', params.id)
+    .single()
 
   // Multiple assignees — replace the join set and keep assignee_id as the primary
   const multiAssign = Array.isArray(b.assigneeIds)
@@ -46,6 +56,29 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
+  // Build audit events from the diff between pre-patch and applied patch
+  if (prePatch && Object.keys(patch).length > 0) {
+    type EvtRow = { todo_id: string; event_type: string; actor_id: string; old_value: string | null; new_value: string | null }
+    const evts: EvtRow[] = []
+    const pre = prePatch as { title: string; status: string; priority: string; due_date: string | null; assignee_id: string | null; is_done: boolean }
+    if (patch.title !== undefined && patch.title !== pre.title)
+      evts.push({ todo_id: params.id, event_type: 'title_changed', actor_id: auth.userId, old_value: pre.title, new_value: patch.title as string })
+    if (patch.due_date !== undefined && patch.due_date !== pre.due_date)
+      evts.push({ todo_id: params.id, event_type: 'due_date_changed', actor_id: auth.userId, old_value: pre.due_date, new_value: patch.due_date as string | null })
+    if (patch.priority !== undefined && patch.priority !== pre.priority)
+      evts.push({ todo_id: params.id, event_type: 'priority_changed', actor_id: auth.userId, old_value: pre.priority, new_value: patch.priority as string })
+    if (patch.status !== undefined && patch.status !== pre.status) {
+      const eventType = patch.is_done === true && !pre.is_done ? 'completed'
+        : patch.is_done === false && pre.is_done ? 'uncompleted'
+        : 'status_changed'
+      evts.push({ todo_id: params.id, event_type: eventType, actor_id: auth.userId, old_value: pre.status, new_value: patch.status as string })
+    }
+    if (evts.length) {
+      createServiceClient().from('todo_events').insert(evts)
+        .then(({ error: ee }) => { if (ee) console.error('[todo_events] patch:', ee.message) })
+    }
+  }
+
   // Sync the assignee join table when a full list is provided
   if (multiAssign) {
     const db = createServiceClient()
@@ -63,6 +96,19 @@ export async function PATCH(request: Request, { params }: { params: { id: string
         user_id: uid, type: 'todo_assigned',
         message: `You were assigned a task: "${(t?.title || 'Task').slice(0, 80)}"`, link: '/todos',
       })))
+      // Log assigned events
+      db.from('todo_events').insert(added.map(uid => ({
+        todo_id: params.id, event_type: 'assigned', actor_id: auth.userId,
+        old_value: null, new_value: uid,
+      }))).then(({ error: ee }) => { if (ee) console.error('[todo_events] assigned:', ee.message) })
+    }
+    // Log unassigned events
+    const removed = [...before].filter(uid => !assigneeIds.includes(uid))
+    if (removed.length) {
+      db.from('todo_events').insert(removed.map(uid => ({
+        todo_id: params.id, event_type: 'unassigned', actor_id: auth.userId,
+        old_value: uid, new_value: null,
+      }))).then(({ error: ee }) => { if (ee) console.error('[todo_events] unassigned:', ee.message) })
     }
   } else if (b.assigneeId !== undefined) {
     // Single-assignee path (e.g. legacy/AI): keep the join table in sync
@@ -76,6 +122,10 @@ export async function PATCH(request: Request, { params }: { params: { id: string
           user_id: b.assigneeId, type: 'todo_assigned',
           message: `You were assigned a task: "${(t?.title || 'Task').slice(0, 80)}"`, link: '/todos',
         })
+        db.from('todo_events').insert({
+          todo_id: params.id, event_type: 'assigned', actor_id: auth.userId,
+          old_value: null, new_value: b.assigneeId,
+        }).then(({ error: ee }) => { if (ee) console.error('[todo_events] assigned:', ee.message) })
       }
     }
   }
@@ -126,6 +176,11 @@ export async function DELETE(_request: Request, { params }: { params: { id: stri
     deleted_by: auth.userId,
   }).eq('id', params.id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Log deleted event — best-effort
+  createServiceClient().from('todo_events').insert({
+    todo_id: params.id, event_type: 'deleted', actor_id: auth.userId,
+  }).then(({ error: ee }) => { if (ee) console.error('[todo_events] deleted:', ee.message) })
 
   // Notify the original owner if someone else deleted a team todo
   if (todo.owner_id !== auth.userId) {

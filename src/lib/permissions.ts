@@ -22,6 +22,7 @@ export type FeatureKey =
   | 'autotag'
   | 'ai_training'
   | 'notifications'
+  | 'activity_log'
 
 export type FeatureGroup = 'Core' | 'SOPs' | 'Learning' | 'Admin'
 
@@ -61,6 +62,7 @@ export const FEATURES: FeatureDef[] = [
   { key: 'autotag', label: 'Auto-tag SOPs', group: 'Admin', hasView: false, hasEdit: true, editHint: 'Run & apply auto-tagging' },
   { key: 'ai_training', label: 'AI Training', group: 'Admin', hasView: true, hasEdit: true, viewHint: 'View bot config', editHint: 'Edit behaviour & teach from chats' },
   { key: 'notifications', label: 'Notification Settings', group: 'Admin', hasView: true, hasEdit: true, viewHint: 'View notification settings', editHint: 'Enable/disable emails and control who receives them' },
+  { key: 'activity_log', label: 'Activity Log & History', group: 'Admin', hasView: true, hasEdit: false, viewHint: 'See a unified log of everything that happened across the app' },
 ]
 
 export const FEATURE_KEYS = FEATURES.map(f => f.key)
@@ -91,6 +93,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<Role, Partial<Record<FeatureKey, P
     dashboard: VIEW, chat: VIEW, notes: ALL, sop_notes: ALL, sops: ALL, approve_sops: ALL, quizzes: ALL,
     users: ALL, teams: ALL, companies: ALL, platforms: ALL,
     import_sops: ALL, import_clickup: ALL, autotag: ALL, ai_training: ALL, notifications: ALL,
+    activity_log: VIEW,
   },
   approver: {
     dashboard: VIEW, chat: VIEW, notes: ALL, sop_notes: ALL, sops: ALL, approve_sops: ALL, quizzes: VIEW,

@@ -126,5 +126,12 @@ export async function POST(request: Request) {
     .single()
   if (error || !data) return NextResponse.json({ error: error?.message ?? 'Create failed' }, { status: 500 })
 
+  // Record initial version (v1) — best-effort, don't fail the request
+  createServiceClient().from('note_versions').insert({
+    note_id: data.id, version_number: 1,
+    title, body: noteBody, content: content ?? null,
+    changed_by: auth.userId,
+  }).then(({ error: ve }) => { if (ve) console.error('[note_versions] v1 insert:', ve.message) })
+
   return NextResponse.json({ note: { ...data, mine: true, canEdit: true, shared: false, deletedByName: null, sopTitle: null, sops: [], companies: [] } })
 }

@@ -185,6 +185,13 @@ export function SopEditor({
           updated_at: new Date().toISOString(),
         }).eq('id', currentSopId)
         if (updateError) {
+          // Diagnostic log — remove once Nica's 42501 is resolved
+          console.error('[SopEditor] update error:', {
+            code: updateError.code,
+            message: updateError.message,
+            details: updateError.details,
+            hint: updateError.hint,
+          })
           setMessage(
             updateError.code === '42501'
               ? 'Permission denied — you may not have edit rights on this SOP. Ask an admin to check your permissions.'

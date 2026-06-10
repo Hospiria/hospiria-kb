@@ -27,12 +27,31 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   const hasPatch = Object.keys(patch).length > 0
   const hasSops = Array.isArray(body.sopIds)
   const hasCompanies = Array.isArray(body.companyIds)
+  // A content-worthy change is one that alters what the reader sees.
+  const isContentChange = 'title' in patch || 'body' in patch || 'content' in patch
 
   if (!hasPatch && !hasSops && !hasCompanies) return NextResponse.json({ success: true })
 
   if (hasPatch) {
     const { error } = await supabase.from('notes').update(patch).eq('id', params.id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // Snapshot a new version whenever meaningful content changes — best-effort
+    if (isContentChange) {
+      const sv = createServiceClient()
+      const { data: fresh } = await sv.from('notes').select('title, body, content').eq('id', params.id).single()
+      if (fresh) {
+        const { data: vrows } = await sv
+          .from('note_versions').select('version_number')
+          .eq('note_id', params.id).order('version_number', { ascending: false }).limit(1)
+        const nextVer = ((vrows as { version_number: number }[] | null)?.[0]?.version_number ?? 0) + 1
+        sv.from('note_versions').insert({
+          note_id: params.id, version_number: nextVer,
+          title: fresh.title, body: fresh.body, content: (fresh.content as unknown) ?? null,
+          changed_by: auth.userId,
+        }).then(({ error: ve }) => { if (ve) console.error('[note_versions] insert:', ve.message) })
+      }
+    }
   }
 
   const db = createServiceClient()

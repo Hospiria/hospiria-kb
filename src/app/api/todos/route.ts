@@ -179,6 +179,11 @@ export async function POST(request: Request) {
   const { data, error } = await supabase.from('todos').insert(insert).select('*').single()
   if (error || !data) return NextResponse.json({ error: error?.message ?? 'Create failed' }, { status: 500 })
 
+  // Log a 'created' event — best-effort, fire-and-forget
+  createServiceClient().from('todo_events').insert({
+    todo_id: data.id, event_type: 'created', actor_id: auth.userId, new_value: title,
+  }).then(({ error: ee }) => { if (ee) console.error('[todo_events] created:', ee.message) })
+
   // Write the full assignee set + notify each assignee
   const db2 = createServiceClient()
   if (assigneeIds.length) {
