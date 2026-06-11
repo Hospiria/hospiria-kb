@@ -81,6 +81,13 @@ export function SopEditor({
   // rather than INSERT again (which was causing duplicates).
   const [currentSopId, setCurrentSopId] = useState<string | undefined>(sopId)
 
+  // Track the SOP's live status so a plain "Save" never demotes it. Forcing
+  // status='draft' on every Save unpublished live SOPs AND — for a non-author
+  // editor (e.g. a team_leader) — moved the row outside their SELECT visibility,
+  // which Postgres rejects with a 42501 RLS error ("Permission denied"). Save now
+  // preserves the existing status; only Publish/Submit change it deliberately.
+  const [currentStatus, setCurrentStatus] = useState(initialStatus)
+
   const isNew = !sopId
   const [autoQuiz, setAutoQuiz] = useState(isNew)
   const [quizRecipientMode, setQuizRecipientMode] = useState<'teams' | 'specific'>('teams')
@@ -172,7 +179,14 @@ export function SopEditor({
 
     try {
       const content = editor.getJSON() as TiptapContent
-      const status = mode === 'publish' ? 'live' : mode === 'submit' ? 'submitted' : 'draft'
+      // Publish/Submit are deliberate status transitions. A plain "Save":
+      //   • brand-new SOP  → 'draft' (first save of a new doc)
+      //   • existing SOP   → keep its current status (don't demote live→draft)
+      const status =
+        mode === 'publish' ? 'live'
+        : mode === 'submit' ? 'submitted'
+        : currentSopId ? currentStatus
+        : 'draft'
 
       let id = currentSopId
       if (currentSopId) {
@@ -185,13 +199,6 @@ export function SopEditor({
           updated_at: new Date().toISOString(),
         }).eq('id', currentSopId)
         if (updateError) {
-          // Diagnostic log — remove once Nica's 42501 is resolved
-          console.error('[SopEditor] update error:', {
-            code: updateError.code,
-            message: updateError.message,
-            details: updateError.details,
-            hint: updateError.hint,
-          })
           setMessage(
             updateError.code === '42501'
               ? 'Permission denied — you may not have edit rights on this SOP. Ask an admin to check your permissions.'
@@ -199,6 +206,8 @@ export function SopEditor({
           )
           return
         }
+        // Persist the status we just saved so subsequent Saves preserve it.
+        setCurrentStatus(status)
       } else {
         // Brand-new SOP — INSERT once, then keep the ID so future saves UPDATE
         const { data, error: insertError } = await supabase.from('sops').insert({
@@ -215,6 +224,8 @@ export function SopEditor({
         id = data?.id
         // Store the new ID so subsequent saves (including later drafts) UPDATE this row
         if (id) setCurrentSopId(id)
+        // Remember the status we just created it with (so the next Save preserves it).
+        setCurrentStatus(status)
       }
 
       if (id) {
