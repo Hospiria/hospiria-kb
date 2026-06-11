@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useSearchParams } from 'next/navigation'
 import {
   Plus, Trash2, Users, Sparkles, Loader2, Calendar, ChevronDown, Check, X,
   Lock, Globe, Search, SlidersHorizontal, Flag, GripVertical, Inbox, Sunrise,
@@ -32,7 +33,11 @@ const LIST_COLORS = ['#14b8a6', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#ef
 export function TodosClient({ currentUserId, people, myTeams }: {
   currentUserId: string; people: Person[]; myTeams: Team[]
 }) {
-  const [space, setSpace] = useState<Space>('personal')
+  const searchParams = useSearchParams()
+  const urlTodoId = searchParams.get('id')
+  const urlSpace = searchParams.get('space') as Space | null
+
+  const [space, setSpace] = useState<Space>(urlSpace ?? 'personal')
   const [todos, setTodos] = useState<Todo[]>([])
   const [trashTodos, setTrashTodos] = useState<Todo[]>([])
   const [lists, setLists] = useState<TodoList[]>([])
@@ -264,6 +269,7 @@ export function TodosClient({ currentUserId, people, myTeams }: {
                 <TaskTable
                   open={openTasks} done={doneTasks}
                   people={people} teams={myTeams} statuses={statuses} lists={lists}
+                  defaultExpandedId={urlTodoId}
                   onToggleDone={toggleDone}
                   onPatch={patch}
                   onChangeStatus={(id, s) => patch(id, { status: s.name, isDone: s.is_done })}
@@ -629,8 +635,9 @@ function QuickAdd({ statuses, people, teams, lists, currentTeamId, defaults, onC
 
 // ─── Table ──────────────────────────────────────────────────────────────────
 
-function TaskTable({ open, done, people, teams, statuses, lists, onToggleDone, onPatch, onChangeStatus, onDelete, onReorder, onOpenComments }: {
+function TaskTable({ open, done, people, teams, statuses, lists, defaultExpandedId, onToggleDone, onPatch, onChangeStatus, onDelete, onReorder, onOpenComments }: {
   open: Todo[]; done: Todo[]; people: Person[]; teams: Team[]; statuses: TodoStatus[]; lists: TodoList[]
+  defaultExpandedId?: string | null
   onToggleDone: (t: Todo) => void
   onPatch: (id: string, b: Record<string, unknown>) => void
   onChangeStatus: (id: string, s: TodoStatus) => void
@@ -639,7 +646,7 @@ function TaskTable({ open, done, people, teams, statuses, lists, onToggleDone, o
   onOpenComments: (t: Todo) => void
 }) {
   const [order, setOrder] = useState<string[]>(open.map(t => t.id))
-  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [expandedId, setExpandedId] = useState<string | null>(defaultExpandedId ?? null)
   const [showDone, setShowDone] = useState(true)
   const dragId = useRef<string | null>(null)
 

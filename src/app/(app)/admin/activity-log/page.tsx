@@ -35,8 +35,8 @@ export default async function ActivityLogPage() {
     db.from('sops').select('id, title, status, author_id, created_at, updated_at').order('updated_at', { ascending: false }).limit(PER_SOURCE_LIMIT),
     db.from('sop_versions').select('id, sop_id, version_number, created_by, created_at').order('created_at', { ascending: false }).limit(PER_SOURCE_LIMIT),
     db.from('approvals').select('id, sop_id, approver_id, status, created_at').order('created_at', { ascending: false }).limit(PER_SOURCE_LIMIT),
-    db.from('todos').select('id, title, owner_id, created_at, completed_at, deleted_at, deleted_by, is_done').order('created_at', { ascending: false }).limit(PER_SOURCE_LIMIT),
-    db.from('notes').select('id, title, owner_id, created_at, updated_at, deleted_at, deleted_by').order('updated_at', { ascending: false }).limit(PER_SOURCE_LIMIT),
+    db.from('todos').select('id, title, owner_id, team_id, created_at, completed_at, deleted_at, deleted_by, is_done').order('created_at', { ascending: false }).limit(PER_SOURCE_LIMIT),
+    db.from('notes').select('id, title, owner_id, team_id, created_at, updated_at, deleted_at, deleted_by').order('updated_at', { ascending: false }).limit(PER_SOURCE_LIMIT),
     db.from('note_versions').select('id, note_id, version_number, title, changed_by, created_at').order('created_at', { ascending: false }).limit(PER_SOURCE_LIMIT),
     db.from('todo_events').select('id, todo_id, event_type, actor_id, old_value, new_value, created_at').order('created_at', { ascending: false }).limit(PER_SOURCE_LIMIT),
     db.from('quizzes').select('id, sop_id, title, created_at').order('created_at', { ascending: false }).limit(PER_SOURCE_LIMIT),
@@ -52,8 +52,20 @@ export default async function ActivityLogPage() {
   const nameById = new Map<string, string>((profiles ?? []).map((p: { id: string; full_name: string | null }) => [p.id, p.full_name ?? 'Unknown']))
   const sopTitleById = new Map<string, string>((sops ?? []).map((s: { id: string; title: string }) => [s.id, s.title]))
   const todoTitleById = new Map<string, string>((todos ?? []).map((t: { id: string; title: string }) => [t.id, t.title]))
+  const todoTeamById = new Map<string, string | null>((todos ?? []).map((t: { id: string; team_id?: string | null }) => [t.id, t.team_id ?? null]))
+  const noteTeamById = new Map<string, string | null>((notes ?? []).map((n: { id: string; team_id?: string | null }) => [n.id, n.team_id ?? null]))
   const quizSopById = new Map<string, string>((quizzes ?? []).map((q: { id: string; sop_id: string }) => [q.id, q.sop_id]))
   const quizTitleById = new Map<string, string>((quizzes ?? []).map((q: { id: string; title: string }) => [q.id, q.title]))
+
+  // Build a deep-link href that includes the item id and its space (team or personal)
+  function noteHref(noteId: string): string {
+    const teamId = noteTeamById.get(noteId)
+    return `/notes?id=${noteId}${teamId ? `&space=${teamId}` : ''}`
+  }
+  function todoHref(todoId: string): string {
+    const teamId = todoTeamById.get(todoId)
+    return `/todos?id=${todoId}${teamId ? `&space=${teamId}` : ''}`
+  }
 
   const actor = (id: string | null | undefined) => (id ? nameById.get(id) ?? null : null)
   const events: ActivityEvent[] = []
@@ -97,15 +109,15 @@ export default async function ActivityLogPage() {
   }
 
   // ── Todos: created, completed, deleted ───────────────────────────────────────
-  for (const t of (todos ?? []) as { id: string; title: string; owner_id: string | null; created_at: string; completed_at: string | null; deleted_at: string | null; deleted_by: string | null; is_done: boolean }[]) {
+  for (const t of (todos ?? []) as { id: string; title: string; owner_id: string | null; team_id?: string | null; created_at: string; completed_at: string | null; deleted_at: string | null; deleted_by: string | null; is_done: boolean }[]) {
     events.push({
       id: `todo-new-${t.id}`, type: 'todo_created', category: 'Tasks',
-      title: t.title, actorName: actor(t.owner_id), date: t.created_at, href: '/todos',
+      title: t.title, actorName: actor(t.owner_id), date: t.created_at, href: todoHref(t.id),
     })
     if (t.completed_at) {
       events.push({
         id: `todo-done-${t.id}`, type: 'todo_completed', category: 'Tasks',
-        title: t.title, actorName: actor(t.owner_id), date: t.completed_at, href: '/todos',
+        title: t.title, actorName: actor(t.owner_id), date: t.completed_at, href: todoHref(t.id),
       })
     }
     if (t.deleted_at) {
@@ -117,10 +129,10 @@ export default async function ActivityLogPage() {
   }
 
   // ── Notes: created and deleted (from notes table; updates come from note_versions) ─
-  for (const n of (notes ?? []) as { id: string; title: string; owner_id: string | null; created_at: string; updated_at: string; deleted_at: string | null; deleted_by: string | null }[]) {
+  for (const n of (notes ?? []) as { id: string; title: string; owner_id: string | null; team_id?: string | null; created_at: string; updated_at: string; deleted_at: string | null; deleted_by: string | null }[]) {
     events.push({
       id: `note-new-${n.id}`, type: 'note_created', category: 'Notes',
-      title: n.title || 'Untitled note', actorName: actor(n.owner_id), date: n.created_at, href: '/notes',
+      title: n.title || 'Untitled note', actorName: actor(n.owner_id), date: n.created_at, href: noteHref(n.id),
     })
     if (n.deleted_at) {
       events.push({
@@ -135,7 +147,7 @@ export default async function ActivityLogPage() {
     events.push({
       id: `nver-${v.id}`, type: 'note_updated', category: 'Notes',
       title: `${v.title || 'Untitled note'} (v${v.version_number})`,
-      actorName: actor(v.changed_by), date: v.created_at, href: '/notes',
+      actorName: actor(v.changed_by), date: v.created_at, href: noteHref(v.note_id),
     })
   }
 
@@ -146,20 +158,20 @@ export default async function ActivityLogPage() {
         e.event_type === 'priority_changed' || e.event_type === 'due_date_changed') {
       events.push({
         id: `tevt-${e.id}`, type: 'todo_updated', category: 'Tasks',
-        title: tTitle, actorName: actor(e.actor_id), date: e.created_at, href: '/todos',
+        title: tTitle, actorName: actor(e.actor_id), date: e.created_at, href: todoHref(e.todo_id),
       })
     } else if (e.event_type === 'status_changed') {
       events.push({
         id: `tevt-${e.id}`, type: 'todo_status_changed', category: 'Tasks',
         title: `${tTitle} → ${e.new_value ?? '?'}`,
-        actorName: actor(e.actor_id), date: e.created_at, href: '/todos',
+        actorName: actor(e.actor_id), date: e.created_at, href: todoHref(e.todo_id),
       })
     } else if (e.event_type === 'assigned') {
       const assigneeName = e.new_value ? (nameById.get(e.new_value) ?? e.new_value) : 'someone'
       events.push({
         id: `tevt-${e.id}`, type: 'todo_assigned', category: 'Tasks',
         title: `${tTitle} → ${assigneeName}`,
-        actorName: actor(e.actor_id), date: e.created_at, href: '/todos',
+        actorName: actor(e.actor_id), date: e.created_at, href: todoHref(e.todo_id),
       })
     }
   }
@@ -168,7 +180,7 @@ export default async function ActivityLogPage() {
   for (const q of (quizzes ?? []) as { id: string; sop_id: string; title: string; created_at: string }[]) {
     events.push({
       id: `quiz-new-${q.id}`, type: 'quiz_created', category: 'Quizzes',
-      title: q.title, actorName: null, date: q.created_at, href: '/admin/quizzes',
+      title: q.title, actorName: null, date: q.created_at, href: `/admin/quizzes/${q.id}`,
     })
   }
 
@@ -178,12 +190,12 @@ export default async function ActivityLogPage() {
     events.push({
       id: `enr-${e.id}`, type: 'quiz_enrolled', category: 'Quizzes',
       title: `${actor(e.user_id) ?? 'A user'} → ${qTitle}`, actorName: actor(e.enrolled_by),
-      date: e.enrolled_at, href: '/admin/quizzes',
+      date: e.enrolled_at, href: `/admin/quizzes/${e.quiz_id}`,
     })
     if (e.completed_at && (e.status === 'passed' || e.status === 'failed')) {
       events.push({
         id: `enrdone-${e.id}`, type: e.status === 'passed' ? 'quiz_passed' : 'quiz_failed', category: 'Quizzes',
-        title: qTitle, actorName: actor(e.user_id), date: e.completed_at, href: '/admin/quizzes',
+        title: qTitle, actorName: actor(e.user_id), date: e.completed_at, href: `/admin/quizzes/${e.quiz_id}`,
       })
     }
   }

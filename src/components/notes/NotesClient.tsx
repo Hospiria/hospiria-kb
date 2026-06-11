@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useSearchParams } from 'next/navigation'
 import {
   Plus, Pin, PinOff, Trash2, Share2, Users, ArrowLeft,
   Loader2, Lock, Globe, X, Search, Link2, ExternalLink,
@@ -27,7 +28,11 @@ const FOLDER_COLORS = ['#14b8a6', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#
 export function NotesClient({ currentUserId, people, myTeams }: {
   currentUserId: string; people: Person[]; myTeams: Team[]
 }) {
-  const [space, setSpace] = useState<Space>('personal')
+  const searchParams = useSearchParams()
+  const urlNoteId = searchParams.get('id')
+  const urlSpace = searchParams.get('space') as Space | null
+
+  const [space, setSpace] = useState<Space>(urlSpace ?? 'personal')
   const [notes, setNotes] = useState<Note[]>([])
   const [trashNotes, setTrashNotes] = useState<Note[]>([])
   const [folders, setFolders] = useState<NoteFolder[]>([])
@@ -64,6 +69,14 @@ export function NotesClient({ currentUserId, people, myTeams }: {
   }, [qs])
 
   useEffect(() => { loadNotes(); loadFolders() }, [loadNotes, loadFolders])
+
+  // ── Deep-link: auto-open a note when ?id= is present (e.g. from Activity Log) ─
+  const didAutoOpen = useRef(false)
+  useEffect(() => {
+    if (!urlNoteId || didAutoOpen.current || notes.length === 0) return
+    const found = notes.find(n => n.id === urlNoteId)
+    if (found) { didAutoOpen.current = true; setActiveNote(found) }
+  }, [notes, urlNoteId])
 
   async function createNote() {
     setError('')
