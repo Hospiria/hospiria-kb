@@ -727,6 +727,25 @@ function TaskRow({ t, people, teams, statuses, lists, expanded, onToggleDone, on
   const recur = recurrenceLabel(t)
   const comments = t.commentCount ?? 0
 
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleVal, setTitleVal] = useState(t.title)
+  const titleInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { setTitleVal(t.title) }, [t.title])
+
+  function startEditTitle(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (isDone) return
+    setEditingTitle(true)
+    setTimeout(() => titleInputRef.current?.select(), 0)
+  }
+  function commitTitle() {
+    setEditingTitle(false)
+    const trimmed = titleVal.trim()
+    if (!trimmed) { setTitleVal(t.title); return }
+    if (trimmed !== t.title) onPatch({ title: trimmed })
+  }
+
   return (
     <div className="border-b border-gray-50 last:border-0"
       onDragEnter={onDragEnter} onDragOver={e => draggable && e.preventDefault()}>
@@ -742,11 +761,35 @@ function TaskRow({ t, people, teams, statuses, lists, expanded, onToggleDone, on
           {isDone && <Check className="w-2.5 h-2.5 text-white" />}
         </button>
         {/* title + recurrence schedule */}
-        <button onClick={onExpand} className="min-w-0 text-left flex items-center gap-2">
-          <span className={`text-sm truncate ${isDone ? 'text-gray-400 line-through' : 'text-navy-700'}`}>{t.title}</span>
-          {t.is_carry && !isDone && <span className="text-[9px] bg-red-100 text-red-600 font-bold px-1 py-0.5 rounded flex-shrink-0">DUE</span>}
-          {recur && <span className="text-[9px] text-gray-500 bg-gray-100 rounded px-1.5 py-0.5 flex-shrink-0 flex items-center gap-0.5">↻ {recur}</span>}
-        </button>
+        <div className="min-w-0 flex items-center gap-1.5 group/title">
+          {editingTitle ? (
+            <input
+              ref={titleInputRef}
+              value={titleVal}
+              onChange={e => setTitleVal(e.target.value)}
+              onBlur={commitTitle}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); commitTitle() }
+                if (e.key === 'Escape') { setTitleVal(t.title); setEditingTitle(false) }
+              }}
+              className="flex-1 text-sm text-navy-700 border border-teal-400 rounded-lg px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-teal-400 min-w-0"
+              onClick={e => e.stopPropagation()}
+            />
+          ) : (
+            <>
+              <button onClick={onExpand} className="min-w-0 text-left flex items-center gap-2 flex-1">
+                <span className={`text-sm truncate ${isDone ? 'text-gray-400 line-through' : 'text-navy-700'}`}>{t.title}</span>
+                {t.is_carry && !isDone && <span className="text-[9px] bg-red-100 text-red-600 font-bold px-1 py-0.5 rounded flex-shrink-0">DUE</span>}
+                {recur && <span className="text-[9px] text-gray-500 bg-gray-100 rounded px-1.5 py-0.5 flex-shrink-0 flex items-center gap-0.5">↻ {recur}</span>}
+              </button>
+              {!isDone && (
+                <button onClick={startEditTitle} title="Edit title" className="opacity-0 group-hover/title:opacity-100 transition-opacity flex-shrink-0 p-0.5 text-gray-300 hover:text-teal-500">
+                  <Pencil className="w-3 h-3" />
+                </button>
+              )}
+            </>
+          )}
+        </div>
         {/* status */}
         <div className="min-w-0"><StatusPicker current={t.status} statuses={statuses} onChange={onChangeStatus} /></div>
         {/* priority */}
@@ -794,7 +837,35 @@ function TaskRow({ t, people, teams, statuses, lists, expanded, onToggleDone, on
       </div>
 
       {expanded && (
+        <ExpandedDetail t={t} lists={lists} teams={teams} onPatch={onPatch} onOpenComments={onOpenComments} comments={comments} />
+      )}
+    </div>
+  )
+}
+
+function ExpandedDetail({ t, lists, teams, onPatch, onOpenComments, comments }: {
+  t: Todo; lists: TodoList[]; teams: Team[]
+  onPatch: (b: Record<string, unknown>) => void
+  onOpenComments: () => void; comments: number
+}) {
+  const [detailVal, setDetailVal] = useState(t.detail ?? '')
+  useEffect(() => { setDetailVal(t.detail ?? '') }, [t.detail])
+  function commitDetail() {
+    const trimmed = detailVal.trim()
+    if (trimmed !== (t.detail ?? '')) onPatch({ detail: trimmed || null })
+  }
+
+  return (
         <div className="px-3 pb-3 bg-slate-50/60">
+          {/* Notes field — always editable */}
+          <textarea
+            value={detailVal}
+            onChange={e => setDetailVal(e.target.value)}
+            onBlur={commitDetail}
+            rows={2}
+            placeholder="Add notes…"
+            className="w-full mt-2 resize-none text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 text-gray-600"
+          />
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-2">
             <label className="text-[10px] font-semibold text-gray-400">List
               <select value={t.list_id ?? ''} onChange={e => onPatch({ listId: e.target.value || null })} className="w-full mt-0.5 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white">
@@ -809,7 +880,6 @@ function TaskRow({ t, people, teams, statuses, lists, expanded, onToggleDone, on
               </label>
             )}
           </div>
-          {t.detail && <p className="text-xs text-gray-500 mt-2 whitespace-pre-wrap">{t.detail}</p>}
           {/* Linked SOPs */}
           <div className="mt-3">
             <p className="text-[10px] font-semibold text-gray-400 mb-1 flex items-center gap-1"><Link2 className="w-3 h-3" /> Linked SOPs</p>
@@ -824,8 +894,6 @@ function TaskRow({ t, people, teams, statuses, lists, expanded, onToggleDone, on
             <MessageSquare className="w-3 h-3" /> {comments ? `View ${comments} comment${comments !== 1 ? 's' : ''}` : 'Add a comment'}
           </button>
         </div>
-      )}
-    </div>
   )
 }
 
