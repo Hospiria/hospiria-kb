@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import {
   GraduationCap, Users, CheckCircle, XCircle, Clock,
-  X, Loader2, BookOpen, Search,
+  X, Loader2, BookOpen, Search, Trash2,
 } from 'lucide-react'
 
 interface TeamInfo { id: string; name: string }
@@ -60,18 +60,27 @@ function StatusBadge({ status }: { status: string }) {
 
 // ─── Course card ──────────────────────────────────────────────────────────────
 
-function CourseCard({ course, onClick }: { course: Course; onClick: () => void }) {
+function CourseCard({ course, onClick, onDelete }: { course: Course; onClick: () => void; onDelete: () => void }) {
   const completionPct  = course.enrolled > 0 ? Math.round((course.completed / course.enrolled) * 100) : 0
   const passPct        = course.enrolled > 0 ? Math.round((course.passed   / course.enrolled) * 100) : 0
   const failPct        = course.enrolled > 0 ? Math.round((course.failed   / course.enrolled) * 100) : 0
 
   return (
-    <button
+    <div
+      className="relative w-full text-left bg-white border border-gray-200 rounded-xl p-4 hover:border-teal-300 hover:shadow-sm transition-all group cursor-pointer"
       onClick={onClick}
-      className="w-full text-left bg-white border border-gray-200 rounded-xl p-4 hover:border-teal-300 hover:shadow-sm transition-all group"
     >
+      {/* Delete button — visible on hover */}
+      <button
+        onClick={e => { e.stopPropagation(); onDelete() }}
+        title="Delete quiz"
+        className="absolute top-3 right-3 p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+      >
+        <Trash2 className="w-3.5 h-3.5" />
+      </button>
+
       {/* Title row */}
-      <div className="flex items-start justify-between gap-4 mb-3">
+      <div className="flex items-start justify-between gap-4 mb-3 pr-8">
         <div className="flex-1 min-w-0">
           <p className="font-semibold text-navy-700 group-hover:text-teal-600 transition-colors truncate">
             {course.title}
@@ -114,7 +123,7 @@ function CourseCard({ course, onClick }: { course: Course; onClick: () => void }
         <span className="flex items-center gap-1 text-red-500"><XCircle className="w-3 h-3" />{course.failed} failed</span>
         <span className="flex items-center gap-1 text-amber-500"><Clock className="w-3 h-3" />{course.pending} pending</span>
       </div>
-    </button>
+    </div>
   )
 }
 
@@ -135,6 +144,18 @@ export function AllCoursesClient({ teams }: { teams: TeamInfo[] }) {
       .then(d => { if (d) setCourses(d.courses ?? []) })
       .finally(() => setLoading(false))
   }, [])
+
+  async function handleDeleteCourse(course: Course) {
+    if (!confirm(`Delete "${course.title}"? This will remove the quiz and all ${course.enrolled} enrollment records. This cannot be undone.`)) return
+    const res = await fetch(`/api/admin/quizzes/${course.id}`, { method: 'DELETE' })
+    if (res.ok) {
+      setCourses(prev => prev.filter(c => c.id !== course.id))
+      if (selectedCourse?.id === course.id) setSelected(null)
+    } else {
+      const d = await res.json().catch(() => ({}))
+      alert(d.error ?? 'Delete failed — please try again.')
+    }
+  }
 
   async function openCourse(course: Course) {
     setSelected(course)
@@ -214,7 +235,7 @@ export function AllCoursesClient({ teams }: { teams: TeamInfo[] }) {
               </h2>
               <div className="grid gap-3">
                 {gc.map(course => (
-                  <CourseCard key={course.id} course={course} onClick={() => openCourse(course)} />
+                  <CourseCard key={course.id} course={course} onClick={() => openCourse(course)} onDelete={() => handleDeleteCourse(course)} />
                 ))}
               </div>
             </div>
@@ -254,9 +275,18 @@ export function AllCoursesClient({ teams }: { teams: TeamInfo[] }) {
                   )}
                 </div>
               </div>
-              <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-navy-700 flex-shrink-0 ml-3 mt-0.5">
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-1 flex-shrink-0 ml-3">
+                <button
+                  onClick={() => handleDeleteCourse(selectedCourse)}
+                  title="Delete quiz"
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+                <button onClick={() => setSelected(null)} className="p-1.5 text-gray-400 hover:text-navy-700">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             {/* Tabs + search */}
