@@ -208,25 +208,14 @@ Rules:
       const { data: profiles } = await adminClient.from('profiles').select('id, full_name, role')
       allProfiles = (profiles ?? []) as { id: string; full_name: string | null; role: string }[]
     } else {
+      // Enroll only users whose primary team is in the SOP's assigned teams.
+      // team_access grants SOP viewing rights — it does NOT mean the person should
+      // take the quiz, so we intentionally exclude it here.
       const { data: primaryMembers } = await adminClient
         .from('profiles')
         .select('id, full_name, role')
         .in('primary_team_id', teamIds)
-
-      const { data: accessMembers } = await adminClient
-        .from('team_access')
-        .select('user_id, profiles(id, full_name, role)')
-        .in('team_id', teamIds)
-
-      const accessProfiles = (accessMembers ?? [])
-        .flatMap((a: { user_id: string; profiles: { id: string; full_name: string | null; role: string }[] }) => a.profiles ?? [])
-        .filter(Boolean) as { id: string; full_name: string | null; role: string }[]
-
-      const seen = new Set<string>()
-      for (const p of [...(primaryMembers ?? []), ...accessProfiles]) {
-        if (!seen.has(p.id)) { seen.add(p.id); allProfiles.push(p) }
-      }
-
+      allProfiles = (primaryMembers ?? []) as { id: string; full_name: string | null; role: string }[]
     }
   }
 

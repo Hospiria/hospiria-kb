@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { GraduationCap, Users, CheckCircle, XCircle, Clock, ChevronDown, ChevronRight, RefreshCw, X, Search, AlertCircle } from 'lucide-react'
+import { GraduationCap, Users, CheckCircle, XCircle, Clock, ChevronDown, ChevronRight, RefreshCw, X, Search, AlertCircle, Trash2 } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
 import { Quiz, QuizEnrollment, Profile } from '@/types'
 
@@ -99,6 +99,17 @@ export function QuizDetailClient({ quiz, initialEnrollments, allProfiles }: Prop
     }
   }
 
+  async function handleDelete() {
+    if (!confirm(`Delete "${quiz.title}"? This will remove the quiz and all ${stats.total} enrollment records. This cannot be undone.`)) return
+    const res = await fetch(`/api/admin/quizzes/${quiz.id}`, { method: 'DELETE' })
+    if (res.ok) {
+      router.push('/admin/quizzes')
+    } else {
+      const d = await res.json().catch(() => ({}))
+      alert(d.error ?? 'Delete failed — please try again.')
+    }
+  }
+
   function toggleSelect(id: string) {
     setSelectedIds(prev => {
       const next = new Set(prev)
@@ -131,13 +142,23 @@ export function QuizDetailClient({ quiz, initialEnrollments, allProfiles }: Prop
             )}
             <p className="text-xs text-gray-400 mt-1">{quiz.questions.length} questions · Pass mark: {quiz.pass_mark}%</p>
           </div>
-          <button
-            onClick={() => setShowEnrollModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 transition-colors"
-          >
-            <Users className="w-4 h-4" />
-            Enrol Users
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowEnrollModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 transition-colors"
+            >
+              <Users className="w-4 h-4" />
+              Enrol Users
+            </button>
+            <button
+              onClick={handleDelete}
+              title="Delete this quiz and all enrollments"
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-red-200 text-red-600 text-sm font-medium rounded-lg hover:bg-red-50 hover:border-red-300 transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+              Delete Quiz
+            </button>
+          </div>
         </div>
 
         {/* Stats */}
