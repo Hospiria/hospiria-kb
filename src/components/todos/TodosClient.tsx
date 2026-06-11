@@ -864,6 +864,9 @@ function ExpandedDetail({ t, lists, teams, onPatch, onOpenComments, comments }: 
 
   return (
         <div className="px-3 pb-3 bg-slate-50/60">
+          {t.team_id && t.ownerName && (
+            <p className="text-[10px] text-gray-400 pt-2">Added by <span className="font-medium">{t.ownerName}</span></p>
+          )}
           {/* Notes field — always editable */}
           <textarea
             value={detailVal}

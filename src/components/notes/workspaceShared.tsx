@@ -16,7 +16,7 @@ export interface NoteFolder {
 export interface Note {
   id: string; title: string; body: string; content: unknown | null; color: string | null; pinned: boolean
   updated_at: string; team_id: string | null; folder_id: string | null; mine: boolean; canEdit: boolean
-  shared: boolean; deleted_at: string | null; deletedByName: string | null
+  shared: boolean; deleted_at: string | null; deletedByName: string | null; ownerName: string | null
   sop_id: string | null; sopTitle: string | null
   sops?: { id: string; title: string }[]
   companies?: { id: string; name: string }[]

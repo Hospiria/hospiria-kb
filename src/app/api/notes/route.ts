@@ -48,21 +48,24 @@ export async function GET(request: Request) {
   const noteIds = rows.map(r => r.id)
 
   // Fetch share permissions, linked SOPs, linked companies in parallel
+  const allProfileIds = [...new Set([
+    ...rows.map(r => r.owner_id),
+    ...rows.map(r => r.deleted_by).filter(Boolean) as string[],
+  ])]
   const [
     { data: myShares },
-    { data: deleters },
+    { data: allProfiles },
     { data: sopLinks },
     { data: companyLinks },
   ] = await Promise.all([
     supabase.from('note_shares').select('note_id, can_edit').eq('user_id', effectiveUserId),
-    db.from('profiles').select('id, full_name').in('id',
-      [...new Set(rows.map(r => r.deleted_by).filter(Boolean) as string[])]),
+    allProfileIds.length ? db.from('profiles').select('id, full_name').in('id', allProfileIds) : Promise.resolve({ data: [] }),
     noteIds.length ? db.from('note_sops').select('note_id, sops(id, title)').in('note_id', noteIds) : Promise.resolve({ data: [] }),
     noteIds.length ? db.from('note_companies').select('note_id, companies(id, name)').in('note_id', noteIds) : Promise.resolve({ data: [] }),
   ])
 
   const shareMap = new Map((myShares ?? []).map(s => [s.note_id, s.can_edit]))
-  const deleterById = new Map((deleters ?? []).map((p: { id: string; full_name: string | null }) => [p.id, p.full_name]))
+  const profileById = new Map((allProfiles ?? []).map((p: { id: string; full_name: string | null }) => [p.id, p.full_name]))
 
   // SOPs per note (join table, fallback to legacy sop_id)
   const sopsByNote = new Map<string, { id: string; title: string }[]>()
@@ -97,7 +100,8 @@ export async function GET(request: Request) {
       mine: n.owner_id === effectiveUserId,
       canEdit: isTeamNote || n.owner_id === effectiveUserId || shareMap.get(n.id) === true,
       shared: !isTeamNote && n.owner_id !== effectiveUserId,
-      deletedByName: n.deleted_by ? (deleterById.get(n.deleted_by) ?? null) : null,
+      ownerName: profileById.get(n.owner_id) ?? null,
+      deletedByName: n.deleted_by ? (profileById.get(n.deleted_by) ?? null) : null,
       sopTitle: linked[0]?.title ?? null,         // legacy compat
       sops: linked,
       companies: companiesByNote.get(n.id) ?? [],

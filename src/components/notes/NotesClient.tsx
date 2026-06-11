@@ -313,6 +313,7 @@ function NoteCard({ note, folders, onOpen, onDelete }: { note: Note; folders: No
         {note.body && <p className="text-xs text-gray-500 line-clamp-3 whitespace-pre-wrap leading-relaxed">{note.body.slice(0, 200)}</p>}
         <div className="flex items-center gap-2 mt-2 flex-wrap">
           <p className="text-[10px] text-gray-300">{new Date(note.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>
+          {note.team_id && note.ownerName && <span className="text-[10px] text-gray-400">by {note.ownerName}</span>}
           {folder && <span className="text-[10px] text-gray-400 flex items-center gap-0.5"><Folder className="w-2.5 h-2.5" /> {folder.name}</span>}
           {sopCount > 0 && <span className="text-[10px] text-teal-500 flex items-center gap-0.5"><Link2 className="w-2.5 h-2.5" /> {sopCount}</span>}
           {coCount > 0 && <span className="text-[10px] text-blue-500 flex items-center gap-0.5"><Building2 className="w-2.5 h-2.5" /> {coCount}</span>}
