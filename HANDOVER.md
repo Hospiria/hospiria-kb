@@ -1,6 +1,6 @@
 # Hospiria Knowledge Base — Handover Document
 
-**Last updated:** May 2026  
+**Last updated:** June 2026  
 **GitHub repo:** https://github.com/Hospiria/hospiria-kb  
 **Live app:** https://hospiria-kb.vercel.app  
 **Hosted on:** Vercel (auto-deploys from `main` branch)  
@@ -203,6 +203,54 @@ git push origin main
 ```
 
 Monitor the deployment at: https://vercel.com → Sonali's projects → hospiria-kb → Deployments
+
+---
+
+## Recent Fixes & RLS Gotchas (June 2026)
+
+### SOP "Permission denied" (42501) on Save — RESOLVED
+**Symptom:** Every non-super-admin editor (team_leaders incl. Nica, Janice) got a red
+"Permission denied" error saving SOP edits. Survived logout/login. Looked like a
+permissions bug for weeks.
+
+**It was NOT a permissions bug.** `has_perm`, `role_permissions`, and migrations 029–034
+were all correct. Root cause: **`SopEditor` forced `status='draft'` on every Save**, even
+for already-`live` SOPs. PostgreSQL rejects an UPDATE whose *new row* falls outside the
+actor's SELECT visibility (migration 021 scopes non-author team_leaders to `live` +
+`submitted` SOPs in their team). Demoting a live SOP to `draft` made the row invisible to
+the editor → 42501. It also silently **unpublished** any live SOP on save.
+
+**Fixes shipped:**
+- **App** (`SopEditor.tsx`): Save/Save Draft now *preserves* an existing SOP's status; only
+  Publish (→live) and Submit (→submitted) change it. New SOPs still start as draft.
+- **DB** (migration 035): editors (`has_perm('sops', true)`) can now see any-status SOPs in
+  their own team, killing the entire "update into invisibility" 42501 class for all roles.
+
+**Key debugging lesson — how to reproduce RLS issues correctly:**
+- The SQL editor runs as the `postgres` role, which **bypasses RLS** → false "it works" results.
+- To test as a real user, you MUST simulate their session:
+  ```sql
+  begin;
+    select set_config('request.jwt.claims',
+      '{"sub":"<user-uuid>","role":"authenticated"}', true);
+    set local role authenticated;       -- <-- without this, RLS is bypassed
+    <the exact statement to test>;
+  rollback;
+  ```
+- Reproduce the **exact** operation (real user id, real row id, the real columns/values the
+  app writes) — a `set updated_at=now()` probe won't trip status-visibility rules and gives
+  a false pass.
+
+### Admin & team-content access (migrations 031–034)
+- **031:** hardened `has_perm`/`get_my_role` etc. with `set search_path` (SECURITY DEFINER safety).
+- **032:** super_admin can SELECT all team notes/todos.
+- **033:** super_admin full write (INSERT/UPDATE/DELETE) on all team notes, todos, comments, SOP notes.
+- **034:** `note_versions` + `todo_events` tables (history/version tracking) feeding the Activity Log.
+- **Activity Log:** `/admin/activity-log` — unified history feed (super_admin only by default).
+
+> RLS rule of thumb for this codebase: an UPDATE fails with 42501 if the **new** row would be
+> invisible to the actor under the SELECT policy. When adding status/owner/team-changing writes,
+> make sure the editor can still see the row afterward (or they own/super-admin it).
 
 ---
 
