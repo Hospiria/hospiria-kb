@@ -130,7 +130,8 @@ export function Sidebar({ profile, teamName, teams, companies, platforms, perms 
             active={pathname === '/todos' || pathname.startsWith('/todos/')} />
         )}
 
-        <NavItem href="/quizzes" icon={GraduationCap} label="My Courses"
+        <NavItem href="/quizzes" icon={GraduationCap}
+          label={['super_admin', 'approver'].includes(profile.role) ? 'All Courses' : 'My Courses'}
           active={pathname === '/quizzes' || pathname.startsWith('/quizzes/')} />
 
         {/* Library */}
