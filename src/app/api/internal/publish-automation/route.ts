@@ -227,18 +227,15 @@ Rules:
         if (!seen.has(p.id)) { seen.add(p.id); allProfiles.push(p) }
       }
 
-      // Always include super_admins
-      const { data: admins } = await adminClient
-        .from('profiles')
-        .select('id, full_name, role')
-        .eq('role', 'super_admin')
-      for (const a of (admins ?? [])) {
-        if (!seen.has(a.id)) { seen.add(a.id); allProfiles.push(a) }
-      }
     }
   }
 
-  // ── 3. Enroll everyone in the quiz (7-day deadline) ──────────────────
+  // Admins and approvers manage courses — they don't take them.
+  // Filter them out so they are not enrolled and don't receive quiz emails.
+  const LEARNER_ROLES = ['agent', 'team_leader', 'junior_team_leader']
+  const learnerProfiles = allProfiles.filter(p => LEARNER_ROLES.includes(p.role))
+
+  // ── 3. Enroll learners in the quiz (7-day deadline) ───────────────────
   const dueDate = new Date()
   dueDate.setDate(dueDate.getDate() + 7)
 
@@ -250,7 +247,7 @@ Rules:
       .eq('quiz_id', quizId)
     const alreadyEnrolled = new Set((existingEnrollments ?? []).map((e: { user_id: string }) => e.user_id))
 
-    const newEnrollments = allProfiles
+    const newEnrollments = learnerProfiles
       .filter(p => !alreadyEnrolled.has(p.id))
       .map(p => ({
         quiz_id: quizId,
@@ -264,8 +261,8 @@ Rules:
       await adminClient.from('quiz_enrollments').insert(newEnrollments)
     }
 
-    // ── 4. In-app notifications for all users ────────────────────────
-    const inAppNotifications = allProfiles.map(p => ({
+    // ── 4. In-app notifications for learners only ────────────────────
+    const inAppNotifications = learnerProfiles.map(p => ({
       user_id: p.id,
       type: 'quiz_enrolled',
       message: `New course assigned: "${sop.title}". Due in 7 days — complete your quiz before ${dueDate.toLocaleDateString('en-GB')}.`,
@@ -275,9 +272,9 @@ Rules:
       await adminClient.from('notifications').insert(inAppNotifications)
     }
 
-    // ── 5. Send emails to all users (gated by notification settings) ─────
+    // ── 5. Send emails to learners only (gated by notification settings) ─
     if (quizEmailEnabled) {
-      for (const p of allProfiles) {
+      for (const p of learnerProfiles) {
         const auth = emailMap.get(p.id)
         if (auth?.email) {
           await sendQuizAssignedEmail({
@@ -317,5 +314,5 @@ Rules:
     }
   }
 
-  return NextResponse.json({ success: true, quizId, enrolled: allProfiles.length })
+  return NextResponse.json({ success: true, quizId, enrolled: learnerProfiles.length })
 }

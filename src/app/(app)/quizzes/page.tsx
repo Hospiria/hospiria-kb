@@ -6,15 +6,29 @@ import { redirect } from 'next/navigation'
 import { GraduationCap, CheckCircle, XCircle } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
 import { MyQuizzesPending, type PendingEnrollment } from './MyQuizzesPending'
+import { AllCoursesClient } from '@/components/admin/AllCoursesClient'
 
-export default async function MyQuizzesPage() {
+const ADMIN_ROLES = ['super_admin', 'approver']
+
+export default async function QuizzesPage() {
   const session = await getEffectiveSession()
   if (!session) redirect('/login')
   const { effectiveUserId, realProfile, isImpersonating } = session
-  // Bulk-remove is super_admin-only and hidden during impersonation so the
-  // admin doesn't accidentally delete the impersonated user's enrolments.
-  const canManagePending = realProfile.role === 'super_admin' && !isImpersonating
   const supabase = createClient()
+
+  // ── Admin / Approver view: All Courses ──────────────────────────────────────
+  // Show the full cross-team overview unless the admin is impersonating someone.
+  if (ADMIN_ROLES.includes(realProfile.role) && !isImpersonating) {
+    const { data: teams } = await supabase.from('teams').select('id, name').order('name')
+    return (
+      <div className="max-w-3xl mx-auto">
+        <AllCoursesClient teams={teams ?? []} />
+      </div>
+    )
+  }
+
+  // ── Learner view: My Courses ─────────────────────────────────────────────────
+  const canManagePending = realProfile.role === 'super_admin' && !isImpersonating
 
   const { data: enrollments } = await supabase
     .from('quiz_enrollments')
@@ -32,7 +46,7 @@ export default async function MyQuizzesPage() {
   }
   const myEnrollments = Array.from(latestPerQuiz.values()) as PendingEnrollment[]
 
-  const pending = myEnrollments.filter(e => e.status === 'pending')
+  const pending   = myEnrollments.filter(e => e.status === 'pending')
   const completed = myEnrollments.filter(e => e.status !== 'pending')
 
   return (
@@ -40,7 +54,7 @@ export default async function MyQuizzesPage() {
       <div className="flex items-center gap-3 mb-6">
         <GraduationCap className="w-7 h-7 text-teal-500" />
         <div>
-          <h1 className="text-2xl font-bold text-navy-700">My Quizzes</h1>
+          <h1 className="text-2xl font-bold text-navy-700">My Courses</h1>
           <p className="text-gray-500 text-sm">{pending.length} pending · {completed.length} completed</p>
         </div>
       </div>
@@ -48,16 +62,14 @@ export default async function MyQuizzesPage() {
       {myEnrollments.length === 0 && (
         <div className="text-center py-16 text-gray-400">
           <GraduationCap className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p className="text-lg">No quizzes assigned yet</p>
+          <p className="text-lg">No courses assigned yet</p>
         </div>
       )}
 
-      {/* Pending quizzes */}
       {pending.length > 0 && (
         <MyQuizzesPending pending={pending} canManage={canManagePending} />
       )}
 
-      {/* Completed quizzes */}
       {completed.length > 0 && (
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">Completed</h2>
