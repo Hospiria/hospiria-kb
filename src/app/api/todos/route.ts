@@ -43,10 +43,19 @@ export async function GET(request: Request) {
     .order('created_at', { ascending: false })
 
   if (space === 'personal') {
-    query = query.is('team_id', null)
-    // When masquerading, RLS won't scope to the effective user — add explicit filter
     if (isImpersonating) {
-      query = query.or(`owner_id.eq.${effectiveUserId},assignee_id.eq.${effectiveUserId}`)
+      // Service client bypasses RLS — filter explicitly.
+      // Show: no-team tasks I own OR tasks assigned to me from any team.
+      query = query.or(
+        `and(team_id.is.null,owner_id.eq.${effectiveUserId}),assignee_id.eq.${effectiveUserId}`
+      )
+    } else {
+      // RLS already scopes to the user's accessible data. Further restrict to:
+      // personal (no-team) tasks OR tasks explicitly assigned to me across any team.
+      // This makes cross-team assignments visible in the personal To-dos view.
+      query = query.or(
+        `team_id.is.null,assignee_id.eq.${effectiveUserId}`
+      )
     }
   } else if (teamId) {
     query = query.eq('team_id', teamId)
