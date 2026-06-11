@@ -6,6 +6,7 @@ import {
   Search, X, FileText, FilePlus2, FilePen, Globe, Send, CheckCircle2, XCircle,
   MessageSquareWarning, CheckSquare, Trash2, NotebookPen, GraduationCap,
   UserPlus, Award, Briefcase, Layers, FolderPlus, Activity, RefreshCw, UserCheck,
+  LogIn, LogOut,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -19,8 +20,9 @@ export type ActivityType =
   | 'note_created' | 'note_updated' | 'note_deleted'
   | 'quiz_created' | 'quiz_enrolled' | 'quiz_passed' | 'quiz_failed'
   | 'company_created' | 'platform_created' | 'category_created'
+  | 'user_login' | 'user_logout'
 
-export type ActivityCategory = 'SOPs' | 'Tasks' | 'Notes' | 'Quizzes' | 'Admin'
+export type ActivityCategory = 'SOPs' | 'Tasks' | 'Notes' | 'Quizzes' | 'Admin' | 'Users'
 
 export interface ActivityEvent {
   id: string
@@ -63,9 +65,11 @@ const TYPE_CONFIG: Record<ActivityType, {
   company_created:       { icon: Briefcase,          verb: 'added company',              colour: 'text-navy-600',   bg: 'bg-gray-100' },
   platform_created:      { icon: Layers,             verb: 'added platform',             colour: 'text-navy-600',   bg: 'bg-gray-100' },
   category_created:      { icon: FolderPlus,         verb: 'added category',             colour: 'text-navy-600',   bg: 'bg-gray-100' },
+  user_login:            { icon: LogIn,              verb: 'logged in',                  colour: 'text-green-600',  bg: 'bg-green-50' },
+  user_logout:           { icon: LogOut,             verb: 'logged out',                 colour: 'text-gray-500',   bg: 'bg-gray-100' },
 }
 
-const CATEGORIES: ActivityCategory[] = ['SOPs', 'Tasks', 'Notes', 'Quizzes', 'Admin']
+const CATEGORIES: ActivityCategory[] = ['SOPs', 'Tasks', 'Notes', 'Quizzes', 'Admin', 'Users']
 
 // ── Date filter (same behaviour as the company dashboard) ─────────────────────
 

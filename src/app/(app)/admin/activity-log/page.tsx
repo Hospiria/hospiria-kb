@@ -30,6 +30,7 @@ export default async function ActivityLogPage() {
     { data: platforms },
     { data: categories },
     { data: profiles },
+    { data: authEvents },
   ] = await Promise.all([
     db.from('sops').select('id, title, status, author_id, created_at, updated_at').order('updated_at', { ascending: false }).limit(PER_SOURCE_LIMIT),
     db.from('sop_versions').select('id, sop_id, version_number, created_by, created_at').order('created_at', { ascending: false }).limit(PER_SOURCE_LIMIT),
@@ -44,6 +45,7 @@ export default async function ActivityLogPage() {
     db.from('platforms').select('id, name, created_at').order('created_at', { ascending: false }).limit(PER_SOURCE_LIMIT),
     db.from('categories').select('id, name, created_at').order('created_at', { ascending: false }).limit(PER_SOURCE_LIMIT),
     db.from('profiles').select('id, full_name'),
+    db.rpc('get_auth_events', { lim: PER_SOURCE_LIMIT }),
   ])
 
   // ── Lookup maps ─────────────────────────────────────────────────────────────
@@ -184,6 +186,18 @@ export default async function ActivityLogPage() {
         title: qTitle, actorName: actor(e.user_id), date: e.completed_at, href: '/admin/quizzes',
       })
     }
+  }
+
+  // ── Login / logout events (from auth.audit_log_entries via get_auth_events RPC) ─
+  for (const e of (authEvents ?? []) as { id: string; actor_id: string | null; action: string; created_at: string }[]) {
+    const type = e.action === 'logout' ? 'user_logout' : 'user_login'
+    const name = e.actor_id ? (nameById.get(e.actor_id) ?? null) : null
+    events.push({
+      id: `auth-${e.id}`, type, category: 'Users',
+      title: name ?? 'the app',
+      actorName: name,
+      date: e.created_at,
+    })
   }
 
   // ── Admin tag tables ──────────────────────────────────────────────────────────
