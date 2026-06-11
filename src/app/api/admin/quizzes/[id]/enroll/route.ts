@@ -109,10 +109,17 @@ export async function GET(request: Request, { params }: { params: { id: string }
     { ...p, teamName: p.primary_team_id ? (teamNameMap.get(p.primary_team_id) ?? null) : null },
   ]))
 
-  const enrollments = (rawEnrollments ?? []).map((e: Record<string, unknown> & { user_id: string }) => ({
-    ...e,
-    profiles: profileMap.get(e.user_id) ?? null,
-  }))
+  const ADMIN_ROLES = ['super_admin', 'approver']
+
+  // Exclude admin/approver profiles — they manage courses, not take them
+  const enrollments = (rawEnrollments ?? [])
+    .map((e: Record<string, unknown> & { user_id: string }) => ({
+      ...e,
+      profiles: profileMap.get(e.user_id) ?? null,
+    }))
+    .filter((e: { profiles: { role: string } | null }) =>
+      !e.profiles || !ADMIN_ROLES.includes(e.profiles.role)
+    )
 
   return NextResponse.json({ enrollments })
 }

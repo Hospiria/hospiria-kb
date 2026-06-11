@@ -28,6 +28,18 @@ export async function GET() {
     .select('quiz_id, user_id, status, enrolled_at')
     .in('quiz_id', quizIds)
 
+  // Filter out admin/approver roles from enrollment counts
+  const enrolledUserIds = [...new Set((allEnrollments ?? []).map((e: { user_id: string }) => e.user_id))]
+  const { data: profileRoles } = enrolledUserIds.length > 0
+    ? await db.from('profiles').select('id, role').in('id', enrolledUserIds)
+    : { data: [] }
+  const ADMIN_ROLES = new Set(['super_admin', 'approver'])
+  const learnerIds = new Set(
+    (profileRoles ?? [])
+      .filter((p: { role: string }) => !ADMIN_ROLES.has(p.role))
+      .map((p: { id: string }) => p.id)
+  )
+
   // Team assignments for the SOPs
   const { data: sopTeamRows } = sopIds.length > 0
     ? await db.from('sop_teams').select('sop_id, team_id').in('sop_id', sopIds)
@@ -42,7 +54,9 @@ export async function GET() {
 
   // Build one course object per quiz
   const courses = quizzes.map((q: { id: string; title: string; pass_mark: number; sop_id: string | null }) => {
-    const qEnrollments = (allEnrollments ?? []).filter((e: { quiz_id: string }) => e.quiz_id === q.id)
+    const qEnrollments = (allEnrollments ?? []).filter(
+      (e: { quiz_id: string; user_id: string }) => e.quiz_id === q.id && learnerIds.has(e.user_id)
+    )
 
     // Deduplicate — keep latest enrollment per user
     const latestPerUser = new Map<string, { status: string; enrolled_at: string }>()
