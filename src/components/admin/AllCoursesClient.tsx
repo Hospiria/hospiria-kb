@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import {
   GraduationCap, Users, CheckCircle, XCircle, Clock,
-  X, Loader2, BookOpen, Search, Trash2,
+  X, Loader2, BookOpen, Search, Trash2, RefreshCw,
 } from 'lucide-react'
 
 interface TeamInfo { id: string; name: string }
@@ -137,6 +137,7 @@ export function AllCoursesClient({ teams }: { teams: TeamInfo[] }) {
   const [loadingPanel, setLoadingPanel] = useState(false)
   const [tab, setTab]                 = useState<PanelTab>('all')
   const [search, setSearch]           = useState('')
+  const [reenrolling, setReenrolling] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     fetch('/api/admin/courses')
@@ -144,6 +145,28 @@ export function AllCoursesClient({ teams }: { teams: TeamInfo[] }) {
       .then(d => { if (d) setCourses(d.courses ?? []) })
       .finally(() => setLoading(false))
   }, [])
+
+  async function handleReenroll(userId: string) {
+    if (!selectedCourse) return
+    setReenrolling(prev => new Set(prev).add(userId))
+    try {
+      const res = await fetch(`/api/admin/quizzes/${selectedCourse.id}/reenroll`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, dueDays: 7 }),
+      })
+      if (res.ok) {
+        // Refresh enrollment list
+        const r2 = await fetch(`/api/admin/quizzes/${selectedCourse.id}/enroll`)
+        if (r2.ok) { const d = await r2.json(); setEnrollments(d.enrollments ?? []) }
+      } else {
+        const d = await res.json().catch(() => ({}))
+        alert(d.error ?? 'Re-enrol failed — please try again.')
+      }
+    } finally {
+      setReenrolling(prev => { const n = new Set(prev); n.delete(userId); return n })
+    }
+  }
 
   async function handleDeleteCourse(course: Course) {
     if (!confirm(`Delete "${course.title}"? This will remove the quiz and all ${course.enrolled} enrollment records. This cannot be undone.`)) return
@@ -345,11 +368,21 @@ export function AllCoursesClient({ teams }: { teams: TeamInfo[] }) {
                           <p className="text-sm font-medium text-navy-700 truncate">{name}</p>
                           {teamLabel && <p className="text-[11px] text-gray-400">{teamLabel}</p>}
                         </div>
-                        {/* Status + score */}
-                        <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                        {/* Status + score + re-send */}
+                        <div className="flex flex-col items-end gap-1 flex-shrink-0">
                           <StatusBadge status={e.status} />
                           {e.score !== null && (
                             <span className="text-[11px] font-bold text-gray-500">{e.score}%</span>
+                          )}
+                          {e.status === 'failed' && (
+                            <button
+                              onClick={() => handleReenroll(e.user_id)}
+                              disabled={reenrolling.has(e.user_id)}
+                              className="flex items-center gap-1 text-[10px] font-medium text-teal-600 hover:text-teal-700 disabled:opacity-50 mt-0.5"
+                            >
+                              <RefreshCw className={`w-3 h-3 ${reenrolling.has(e.user_id) ? 'animate-spin' : ''}`} />
+                              {reenrolling.has(e.user_id) ? 'Sending…' : 'Re-send'}
+                            </button>
                           )}
                         </div>
                       </div>
