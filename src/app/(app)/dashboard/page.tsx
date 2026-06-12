@@ -45,7 +45,7 @@ export default async function DashboardPage() {
       supabase.from('quiz_enrollments').select('id, quiz_id, user_id, status, score, completed_at, due_date'),
       supabase.from('quizzes').select('id, title').eq('status', 'active'),
       supabase.from('teams').select('id, name').order('name'),
-      supabase.from('profiles').select('id, full_name, primary_team_id'),
+      supabase.from('profiles').select('id, full_name, primary_team_id, role'),
       supabase.from('todos').select('*').eq('owner_id', effectiveUserId).is('deleted_at', null).eq('is_done', false)
         .order('due_date', { ascending: true, nullsFirst: false }).limit(50),
     ])
@@ -57,7 +57,7 @@ export default async function DashboardPage() {
             enrollments={(enrollments ?? []) as Parameters<typeof AdminDashboardClient>[0]['enrollments']}
             quizzes={(quizzes ?? []) as { id: string; title: string }[]}
             teams={(teams ?? []) as { id: string; name: string }[]}
-            profiles={(profiles ?? []) as { id: string; full_name: string | null; primary_team_id: string | null }[]}
+            profiles={(profiles ?? []) as { id: string; full_name: string | null; primary_team_id: string | null; role: string }[]}
             liveSops={liveSops ?? 0} pendingSops={pendingSops ?? 0} totalUsers={totalUsers ?? 0}
           />
         }

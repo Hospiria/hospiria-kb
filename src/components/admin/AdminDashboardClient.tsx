@@ -15,7 +15,7 @@ interface EnrollmentRow {
 }
 interface QuizRow    { id: string; title: string }
 interface TeamRow    { id: string; name: string }
-interface ProfileRow { id: string; full_name: string | null; primary_team_id: string | null }
+interface ProfileRow { id: string; full_name: string | null; primary_team_id: string | null; role: string }
 
 interface Props {
   enrollments: EnrollmentRow[]
@@ -110,7 +110,7 @@ export function AdminDashboardClient({ enrollments, quizzes, teams, profiles, li
 
   // ── Per-agent stats (filtered) ─────────────────────────────────────────────
   const userStats = useMemo(() => filteredProfiles
-    .filter(p => p.primary_team_id !== null)
+    .filter(p => p.primary_team_id !== null && !['super_admin', 'approver'].includes(p.role))
     .map(p => {
       const e = filteredEnrollments.filter(en => en.user_id === p.id)
       if (e.length === 0) return null
