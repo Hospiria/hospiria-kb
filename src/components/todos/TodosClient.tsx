@@ -786,7 +786,7 @@ function TaskRow({ t, people, teams, statuses, lists, expanded, onToggleDone, on
             <>
               <button onClick={onExpand} className="min-w-0 text-left flex-1">
                 <div className="flex items-center gap-2">
-                  <span className={`text-sm truncate ${isDone ? 'text-gray-400 line-through' : 'text-navy-700'}`}>{t.title}</span>
+                  <span className={`text-sm break-words min-w-0 ${isDone ? 'text-gray-400 line-through' : 'text-navy-700'}`}>{t.title}</span>
                   {t.is_carry && !isDone && <span className="text-[9px] bg-red-100 text-red-600 font-bold px-1 py-0.5 rounded flex-shrink-0">DUE</span>}
                   {recur && <span className="text-[9px] text-gray-500 bg-gray-100 rounded px-1.5 py-0.5 flex-shrink-0 flex items-center gap-0.5">↻ {recur}</span>}
                 </div>
